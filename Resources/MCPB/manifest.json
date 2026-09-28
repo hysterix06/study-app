@@ -1,0 +1,53 @@
+{
+  "manifest_version": "0.2",
+  "name": "study-tracker",
+  "display_name": "Study Tracker",
+  "version": "1.0.0",
+  "description": "Lets Claude read your lectures and save concepts, questions, flashcards and study sheets into the Study Tracker app on this Mac.",
+  "long_description": "Study Tracker keeps your timetable, deadlines, course materials and flashcards on your Mac. This extension gives Claude restricted access: it can read your schedule and lectures, and save concepts, practice questions, proposed flashcards, Cornell sheets and gap reports back into the app. It cannot delete anything, and assignments or study blocks it suggests wait for your confirmation. Nothing leaves your Mac except what you share in the conversation.",
+  "author": {
+    "name": "Study Tracker"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/study-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/study-mcp",
+      "args": [],
+      "env": {}
+    }
+  },
+  "tools": [
+    { "name": "get_overview", "description": "What's next and what's due" },
+    { "name": "list_courses", "description": "Courses with grading scale and targets" },
+    { "name": "get_schedule", "description": "Classes, events and busy time for a date range" },
+    { "name": "list_assignments", "description": "Assignments, quizzes and exams" },
+    { "name": "get_grade_summary", "description": "Grade math and what is needed to reach the target" },
+    { "name": "list_materials", "description": "Lectures, readings, syllabi, rubrics and past exams" },
+    { "name": "get_material", "description": "A material's chunk index" },
+    { "name": "get_chunks", "description": "Lecture text with speaker notes, tables and chart data" },
+    { "name": "get_slide_images", "description": "Pictures from slides and scanned pages" },
+    { "name": "get_concepts", "description": "Concepts with sources and links" },
+    { "name": "get_questions", "description": "Practice questions with answer keys" },
+    { "name": "get_review_queue", "description": "Flashcards due now" },
+    { "name": "get_notes", "description": "Cornell sheets, gap reports and notes" },
+    { "name": "get_handwriting_captures", "description": "Text read from photos of handwritten notes" },
+    { "name": "get_outcomes", "description": "Missed deadlines, retention, study time and grades" },
+    { "name": "save_concepts", "description": "Save concepts with source chunks" },
+    { "name": "save_questions", "description": "Save practice questions" },
+    { "name": "propose_cards", "description": "Propose flashcards for the student to approve" },
+    { "name": "save_cornell_sheet", "description": "Save a handwriting-ready Cornell sheet" },
+    { "name": "save_note", "description": "Save a gap report, rubric check or other note" },
+    { "name": "propose_assignments", "description": "Propose deadlines found in a syllabus" },
+    { "name": "propose_study_blocks", "description": "Propose study blocks" },
+    { "name": "mark_material_processed", "description": "Mark a lecture as processed" },
+    { "name": "record_session", "description": "Record a study session" },
+    { "name": "log_review", "description": "Apply the student's own flashcard rating" }
+  ],
+  "keywords": ["study", "education", "flashcards", "lectures", "calendar"],
+  "license": "Proprietary",
+  "compatibility": {
+    "platforms": ["darwin"]
+  }
+}
