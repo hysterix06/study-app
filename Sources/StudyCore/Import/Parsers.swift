@@ -66,7 +66,7 @@ public enum MaterialParser {
         case "docx": return try DOCXParser.parse(url, fallbackTitle: fallbackTitle, assetsDir: options.assetsDir)
         case "pdf": return try PDFParser.parse(url, fallbackTitle: fallbackTitle, options: options)
         case "md", "markdown", "txt":
-            guard let text = try? String(contentsOf: url, encoding: .utf8) ?? String(contentsOf: url, encoding: .isoLatin1) else {
+            guard let text = (try? String(contentsOf: url, encoding: .utf8)) ?? (try? String(contentsOf: url, encoding: .isoLatin1)) else {
                 throw ParseError.unreadable("The text file could not be read.")
             }
             return TextParser.parse(text, title: fallbackTitle)

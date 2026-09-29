@@ -147,7 +147,7 @@ struct GradeCard: View {
             SectionHeader(title: "Grade")
             switch result {
             case .failure(let error):
-                Text("\(error)").font(.stSmall).foregroundStyle(Theme.accent)
+                Text(String(describing: error)).font(.stSmall).foregroundStyle(Theme.accent)
             case .success(let s):
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
                     Text(s.currentOnScale.map { course.gradeScale.format($0) } ?? "—").font(.stTitle).monospacedDigit()

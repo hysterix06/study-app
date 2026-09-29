@@ -219,8 +219,8 @@ public final class Database: @unchecked Sendable {
             return result
         } catch {
             txDepth -= 1
-            if depth == 0 { try? execute("ROLLBACK") } else {
-                try? execute("ROLLBACK TO \(savepoint)"); try? execute("RELEASE \(savepoint)")
+            if depth == 0 { _ = try? execute("ROLLBACK") } else {
+                _ = try? execute("ROLLBACK TO \(savepoint)"); _ = try? execute("RELEASE \(savepoint)")
             }
             throw error
         }

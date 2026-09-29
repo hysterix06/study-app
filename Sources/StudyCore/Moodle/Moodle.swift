@@ -149,7 +149,7 @@ public enum MoodleSync {
                 let candidates = local.filter { $0.moodleId == nil }
                 if let c = CourseMatcher.best(mc.shortname + " " + mc.fullname, courses: candidates, minimum: 60) {
                     var u = c; u.moodleId = mc.id
-                    try? store.saveCourse(u)
+                    _ = try? store.saveCourse(u)
                     report.linked += 1
                 }
             }
@@ -181,7 +181,7 @@ public enum MoodleSync {
                             var u = local
                             u.status = .submitted
                             u.submittedAt = ((sub["timemodified"] as? NSNumber)?.doubleValue).map { Date(timeIntervalSince1970: $0) } ?? now
-                            try? store.saveAssignment(u, markModified: false)
+                            _ = try? store.saveAssignment(u, markModified: false)
                             report.assignmentsUpdated += 1
                         }
                     }
@@ -221,7 +221,7 @@ public enum MoodleSync {
                         }
                     }
                     if a.weightPct == nil, let w = (item["weightraw"] as? NSNumber)?.doubleValue, w > 0 { a.weightPct = (w * 1000).rounded() / 10; changed = true }
-                    if changed { try? store.saveAssignment(a, markModified: false); report.gradesUpdated += 1 }
+                    if changed { _ = try? store.saveAssignment(a, markModified: false); report.gradesUpdated += 1 }
                 }
             }
 
@@ -292,7 +292,7 @@ public enum MoodleSync {
             }
             a.title = title; a.dueAt = due; a.url = url ?? a.url
             if a.description == nil { a.description = description }
-            try? store.saveAssignment(a, markModified: false)
+            _ = try? store.saveAssignment(a, markModified: false)
             r.updated = 1
             return r
         }

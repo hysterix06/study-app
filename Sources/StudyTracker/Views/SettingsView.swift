@@ -37,8 +37,11 @@ struct SettingsScreen: View {
     var body: some View {
         let _ = model.revision
         HStack(spacing: 0) {
-            List(selection: Binding(get: { section }, set: { if let s = $0 { section = s } })) {
-                ForEach(SettingsSection.allCases) { s in Label(s.title, systemImage: s.icon).tag(s) }
+            VStack(spacing: 0) {
+                List(selection: Binding(get: { section }, set: { if let s = $0 { section = s } })) {
+                    ForEach(SettingsSection.allCases) { s in Label(s.title, systemImage: s.icon).tag(s) }
+                }
+                Text("Study Tracker | v\(appVersion)").font(.stSmall).foregroundStyle(Theme.tertiaryText).textSelection(.enabled).padding(12)
             }.frame(width: 230)
             Divider()
             ScrollView {
@@ -59,6 +62,9 @@ struct SettingsScreen: View {
         }
     }
 }
+
+/// The bundle's version (set by scripts/build-app.sh); falls back when running unbundled via `swift run`.
+let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
 
 /// Binds a settings key to a String.
 @MainActor

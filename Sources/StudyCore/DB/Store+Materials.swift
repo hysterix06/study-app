@@ -76,7 +76,7 @@ public extension StudyStore {
             parsed = try MaterialParser.parse(url, options: .init(assetsDir: assetsDir, ocrScannedPages: ocr, renderPDFPages: true))
         } catch {
             parsed = nil
-            failure = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+            failure = error is CocoaError ? error.localizedDescription : "\(error)"
         }
 
         // File the original.
