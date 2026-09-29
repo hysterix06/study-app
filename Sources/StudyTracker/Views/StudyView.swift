@@ -41,7 +41,7 @@ struct LectureStudy: View {
                         CourseDot(color: m.courseId.flatMap { courses[$0]?.color })
                         VStack(alignment: .leading, spacing: 1) {
                             Text(m.title).font(.stBody).lineLimit(1)
-                            Text(m.courseId.flatMap { courses[$0]?.shortName } ?? "").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                            Text(m.courseId.flatMap { courses[$0]?.displayName } ?? "").font(.stSmall).foregroundStyle(Theme.tertiaryText)
                         }
                         Spacer()
                         if m.processedAt != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.secondaryText).font(.system(size: 11)).accessibilityLabel("Processed") }
@@ -217,7 +217,7 @@ struct ReviewView: View {
     @ViewBuilder func cardView(_ card: Card) -> some View {
         let courses = model.store.courseMap()
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 6) { CourseDot(color: courses[card.courseId]?.color); Text(courses[card.courseId]?.shortName ?? "").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+            HStack(spacing: 6) { CourseDot(color: courses[card.courseId]?.color); Text(courses[card.courseId]?.displayName ?? "").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
             Text(card.front).font(.system(size: 22, weight: .medium)).fixedSize(horizontal: false, vertical: true)
             if session.revealed {
                 Divider()
@@ -459,7 +459,7 @@ struct InsightsView: View {
                         ForEach(o.gradeByCourse, id: \.course.id) { g in
                             HStack {
                                 CourseDot(color: g.course.color)
-                                Text(g.course.shortName).font(.stBodyStrong).frame(width: 90, alignment: .leading)
+                                Text(g.course.displayName).font(.stBodyStrong).frame(width: 90, alignment: .leading)
                                 Text(g.summary.currentOnScale.map { g.course.gradeScale.format($0) } ?? "—").monospacedDigit()
                                 Text(g.course.targetGrade.map { "target \(g.course.gradeScale.format($0))" } ?? "").foregroundStyle(Theme.secondaryText)
                                 Spacer()

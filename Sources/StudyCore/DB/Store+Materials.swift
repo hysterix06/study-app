@@ -149,7 +149,7 @@ public extension StudyStore {
 
     func libraryFolder(term: Term?, course: Course?) -> URL {
         let termName = Slug.make(term?.name ?? "General", max: 40)
-        let courseName = course.map { Slug.make($0.shortName, max: 40) } ?? "_unfiled"
+        let courseName = course.map { Slug.make($0.codeOrName, max: 40) } ?? "_unfiled"
         return paths.library.appendingPathComponent(termName).appendingPathComponent(courseName)
     }
 

@@ -74,7 +74,7 @@ public extension StudyStore {
         }
         let look = lookYourselfChunkIds.isEmpty ? [] : try validateChunks(lookYourselfChunkIds, materialId: materialId, field: "look_yourself_chunk_ids")
         let course = self.course(courseId)
-        let sheet = CornellSheet(title: title, courseCode: course?.shortName ?? "", materialTitle: m.title,
+        let sheet = CornellSheet(title: title, courseCode: course?.displayName ?? "", materialTitle: m.title,
                                  date: LocalDate.today(tz: timezone).string, cues: out, summaryPrompt: summaryPrompt, lookYourself: look)
         return try saveClaudeNote(courseId: courseId, materialId: materialId, kind: "cornell_sheet", title: title,
                                   content: sheet.markdown, dataJson: sheet.json)

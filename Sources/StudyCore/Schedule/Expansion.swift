@@ -31,7 +31,7 @@ public struct Occurrence: Identifiable, Hashable {
             "start": ISO.instant(start, in: tz), "end": ISO.instant(end, in: tz),
             "status": status.rawValue, "all_day": allDay,
         ]
-        if let courseId { d["course_id"] = courseId; d["course"] = courses[courseId]?.shortName ?? "" }
+        if let courseId { d["course_id"] = courseId; d["course"] = courses[courseId]?.displayName ?? "" }
         if let location { d["location"] = location }
         if let note { d["note"] = note }
         switch origin {

@@ -66,8 +66,9 @@ public extension StudyStore {
     // MARK: Courses
 
     func courses(includeArchived: Bool = false) -> [Course] {
-        let sql = includeArchived ? "SELECT * FROM courses ORDER BY archived, COALESCE(code, name)"
-            : "SELECT * FROM courses WHERE archived = 0 ORDER BY COALESCE(code, name)"
+        let order = "COALESCE(NULLIF(short_name, ''), NULLIF(name, ''), code) COLLATE NOCASE"
+        let sql = includeArchived ? "SELECT * FROM courses ORDER BY archived, \(order)"
+            : "SELECT * FROM courses WHERE archived = 0 ORDER BY \(order)"
         return ((try? db.query(sql)) ?? []).map(Course.init)
     }
 
@@ -80,17 +81,17 @@ public extension StudyStore {
         if c.id == 0 {
             let color = c.color.isEmpty ? nextCourseColor() : c.color
             let id = try db.execute("""
-                INSERT INTO courses(term_id, code, name, instructor, color, aliases, kind, grade_scale, target_grade, pass_mark, moodle_id, archived)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-                """, [c.termId, c.code?.nilIfEmpty, c.name, c.instructor?.nilIfEmpty, color, c.aliases?.nilIfEmpty, c.kind,
+                INSERT INTO courses(term_id, code, name, short_name, instructor, color, aliases, kind, grade_scale, target_grade, pass_mark, moodle_id, archived)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, [c.termId, c.code?.nilIfEmpty, c.name, c.shortName?.nilIfEmpty, c.instructor?.nilIfEmpty, color, c.aliases?.nilIfEmpty, c.kind,
                       c.gradeScale.rawValue, c.targetGrade, c.passMark, c.moodleId, c.archived]).lastInsertId
             audit("create_course", entity: "course", id: id, detail: c.name)
             return id
         }
         try db.execute("""
-            UPDATE courses SET term_id=?, code=?, name=?, instructor=?, color=?, aliases=?, kind=?, grade_scale=?, target_grade=?,
+            UPDATE courses SET term_id=?, code=?, name=?, short_name=?, instructor=?, color=?, aliases=?, kind=?, grade_scale=?, target_grade=?,
               pass_mark=?, moodle_id=?, archived=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?
-            """, [c.termId, c.code?.nilIfEmpty, c.name, c.instructor?.nilIfEmpty, c.color, c.aliases?.nilIfEmpty, c.kind,
+            """, [c.termId, c.code?.nilIfEmpty, c.name, c.shortName?.nilIfEmpty, c.instructor?.nilIfEmpty, c.color, c.aliases?.nilIfEmpty, c.kind,
                   c.gradeScale.rawValue, c.targetGrade, c.passMark, c.moodleId, c.archived, c.id])
         return c.id
     }

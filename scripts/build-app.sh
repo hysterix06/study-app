@@ -15,20 +15,19 @@ swift build -c release --product StudyTracker
 swift build -c release --product study-mcp
 BIN="$(swift build -c release --show-bin-path)"
 
-echo "→ Rendering icon"
-python3 scripts/make_icon_svg.py >/dev/null
+echo "→ Compiling icon"
+python3 scripts/make_icon.py >/dev/null
 ICONWORK="$DIST/icon-work"
+rm -rf "$ICONWORK"
 mkdir -p "$ICONWORK"
-qlmanage -t -s 1024 -o "$ICONWORK" Resources/Icon/AppIcon.svg >/dev/null 2>&1
-MASTER="$ICONWORK/AppIcon.svg.png"
-ICONSET="$ICONWORK/AppIcon.iconset"
-mkdir -p "$ICONSET"
-for size in 16 32 128 256 512; do
-  sips -z $size $size "$MASTER" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
-  double=$((size * 2))
-  sips -z $double $double "$MASTER" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "$ICONSET" -o "$ICONWORK/AppIcon.icns"
+# A compiled .icon (Assets.car + CFBundleIconName) is what lets macOS 26+ mask, light and tint the icon itself; an
+# .icns alone gets shrunk into a system-drawn frame. actool also writes an .icns fallback for older macOS.
+xcrun actool Resources/Icon/AppIcon.icon --compile "$ICONWORK" --platform macosx --minimum-deployment-target 15.0 \
+  --app-icon AppIcon --output-partial-info-plist "$ICONWORK/partial.plist" >/dev/null
+ICTOOL="$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool"
+MASTER="$ICONWORK/AppIcon-1024.png"
+"$ICTOOL" Resources/Icon/AppIcon.icon --export-image --output-file "$MASTER" --platform macOS --rendition Default \
+  --width 1024 --height 1024 --scale 1 >/dev/null
 cp "$MASTER" Resources/Icon/AppIcon-1024.png
 
 echo "→ Packaging the Claude Desktop extension (.mcpb)"
@@ -45,6 +44,7 @@ echo "→ Assembling the app bundle"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/StudyTracker" "$APP/Contents/MacOS/StudyTracker"
 cp "$BIN/study-mcp" "$APP/Contents/MacOS/study-mcp"
+cp "$ICONWORK/Assets.car" "$APP/Contents/Resources/Assets.car"
 cp "$ICONWORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$DIST/study-tracker.mcpb" "$APP/Contents/Resources/study-tracker.mcpb"
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -56,6 +56,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Study Tracker</string>
   <key>CFBundleExecutable</key><string>StudyTracker</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundleIdentifier</key><string>com.studytracker.app</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>Study Tracker</string>

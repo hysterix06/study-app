@@ -333,7 +333,7 @@ struct MoodleSettings: View {
                                 get: { model.store.courses().first { $0.moodleId == mc.id }?.id ?? 0 },
                                 set: { newId in link(mc, to: newId) })) {
                                 Text("Not linked").tag(0)
-                                ForEach(model.store.courses()) { c in Text(c.shortName).tag(c.id) }
+                                ForEach(model.store.courses()) { c in Text(c.displayName).tag(c.id) }
                             }.labelsHidden().frame(width: 160)
                             if !model.store.courses().contains(where: { $0.moodleId == mc.id }) {
                                 Button("Create") { create(mc) }.buttonStyle(.borderless).font(.stSmall)

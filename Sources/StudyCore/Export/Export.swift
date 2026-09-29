@@ -29,7 +29,7 @@ public enum Exporter {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         for c in store.courses(includeArchived: true) {
-            let dir = root.appendingPathComponent(Slug.make(c.shortName))
+            let dir = root.appendingPathComponent(Slug.make(c.codeOrName))
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             let concepts = store.concepts(courseId: c.id)
             let byId = Dictionary(uniqueKeysWithValues: concepts.map { ($0.id, $0) })
@@ -40,7 +40,7 @@ public enum Exporter {
                 try fm.createDirectory(at: conceptDir, withIntermediateDirectories: true)
                 index += "## Concepts\n\n"
                 for k in concepts {
-                    var md = obsidian ? "---\ncourse: \"\(c.shortName)\"\ntype: concept\nimportance: \(k.importance)\ncreated_by: \(k.createdBy)\n---\n\n" : ""
+                    var md = obsidian ? "---\ncourse: \"\(c.codeOrName)\"\ntype: concept\nimportance: \(k.importance)\ncreated_by: \(k.createdBy)\n---\n\n" : ""
                     md += "# \(k.name)\n\n\(k.definition)\n\n"
                     let src = store.conceptSources(k.id)
                     if !src.isEmpty { md += "**Sources:** " + src.map { "\($0.materialTitle), \($0.locator)" }.joined(separator: "; ") + "\n\n" }
@@ -63,7 +63,7 @@ public enum Exporter {
                     if n.kind == "cornell_sheet", let sheet = CornellSheet.decode(n.dataJson) {
                         md = obsidian ? sheet.obsidianMarkdown : sheet.markdown
                     } else {
-                        md = obsidian ? "---\ncourse: \"\(c.shortName)\"\nmaterial: \"\(material.replacingOccurrences(of: "\"", with: "'"))\"\ntype: \(n.kind)\ncreated_by: \(n.createdBy)\n---\n\n" : ""
+                        md = obsidian ? "---\ncourse: \"\(c.codeOrName)\"\nmaterial: \"\(material.replacingOccurrences(of: "\"", with: "'"))\"\ntype: \(n.kind)\ncreated_by: \(n.createdBy)\n---\n\n" : ""
                         md += "# \(n.title)\n\n\(n.contentMd)\n"
                     }
                     let name = Slug.make("\(n.kind.replacingOccurrences(of: "_", with: " ")) - \(n.title)")
@@ -71,7 +71,7 @@ public enum Exporter {
                     index += "- " + (obsidian ? "[[\(name)]]" : n.title) + "\n"
                 }
             }
-            try index.write(to: dir.appendingPathComponent("\(Slug.make(c.shortName)).md"), atomically: true, encoding: .utf8)
+            try index.write(to: dir.appendingPathComponent("\(Slug.make(c.codeOrName)).md"), atomically: true, encoding: .utf8)
         }
     }
 
@@ -81,7 +81,7 @@ public enum Exporter {
         var out = "#separator:tab\n#html:false\n#tags column:3\n"
         for card in store.cards(status: "active") {
             func clean(_ s: String) -> String { s.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ") }
-            let tag = Slug.make(courses[card.courseId]?.shortName ?? "study").replacingOccurrences(of: " ", with: "_")
+            let tag = Slug.make(courses[card.courseId]?.codeOrName ?? "study").replacingOccurrences(of: " ", with: "_")
             let back = card.back + (card.sourceLocators.map { " (\($0))" } ?? "")
             out += "\(clean(card.front))\t\(clean(back))\tStudyTracker \(tag)\n"
         }
@@ -102,7 +102,7 @@ public enum Exporter {
         }
         let courses = store.courseMap()
         for a in store.assignments() where a.dueAt != nil && a.isOpen {
-            let c = a.courseId.flatMap { courses[$0]?.shortName }.map { "[\($0)] " } ?? ""
+            let c = a.courseId.flatMap { courses[$0]?.displayName }.map { "[\($0)] " } ?? ""
             lines += ["BEGIN:VEVENT", "UID:a\(a.id)@studytracker", "DTSTAMP:\(stamp)", "DTSTART:\(ICS.utcStamp(a.dueAt!.adding(minutes: -15)))",
                       "DTEND:\(ICS.utcStamp(a.dueAt!))", "SUMMARY:\(ICS.escape("Due: \(c)\(a.title)"))", "END:VEVENT"]
         }

@@ -32,13 +32,13 @@ struct CommandPalette: View {
             PaletteItem(title: "Open Claude", subtitle: "Claude", icon: "sparkles") { model.openClaude() },
         ]
         let courses = model.store.courses()
-        for c in courses { out.append(PaletteItem(title: "\(c.shortName) · \(c.name)", subtitle: "Course", icon: "books.vertical") { model.openCourse(c.id) }) }
+        for c in courses { out.append(PaletteItem(title: c.names.joined(separator: " · "), subtitle: "Course", icon: "books.vertical") { model.openCourse(c.id) }) }
         let map = model.store.courseMap()
         for a in model.store.assignments().filter({ $0.isOpen }) {
-            out.append(PaletteItem(title: a.title, subtitle: "Assignment · \(a.courseId.flatMap { map[$0]?.shortName } ?? "")", icon: "checklist") { model.openAssignment(a.id) })
+            out.append(PaletteItem(title: a.title, subtitle: "Assignment · \(a.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "checklist") { model.openAssignment(a.id) })
         }
         for m in model.store.materials().prefix(60) where m.courseId != nil {
-            out.append(PaletteItem(title: m.title, subtitle: "Lecture · \(m.courseId.flatMap { map[$0]?.shortName } ?? "")", icon: "doc") { model.openStudy(m.id) })
+            out.append(PaletteItem(title: m.title, subtitle: "Lecture · \(m.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "doc") { model.openStudy(m.id) })
         }
         return out
     }

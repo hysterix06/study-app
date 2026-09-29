@@ -198,6 +198,7 @@ CREATE TABLE courses (
   term_id INTEGER NOT NULL REFERENCES terms(id),
   code TEXT,
   name TEXT NOT NULL,
+  short_name TEXT,                     -- shown instead of name when set; display order short_name > name > code
   instructor TEXT,
   color TEXT,                          -- palette token name, not hex
   target_grade REAL,                   -- percent, 0-100

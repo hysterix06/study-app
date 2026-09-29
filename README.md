@@ -111,4 +111,4 @@ swift run StudyTracker      # run unbundled (notifications need the .app bundle)
 | `Sources/StudyMCPCore`, `Sources/study-mcp` | The MCP server |
 | `Sources/StudyTracker` | The SwiftUI app |
 | `Tests/StudyCoreTests` | Tests and fixtures (Outlook, Moodle and shift `.ics` files; PPTX/DOCX/PDF generated at test time) |
-| `scripts/` | `build-app.sh`, `make_icon_svg.py` (the synapse icon is generated from code) |
+| `scripts/` | `build-app.sh`, `make_icon.py` (the neuron icon is generated from code as an Icon Composer `.icon`) |

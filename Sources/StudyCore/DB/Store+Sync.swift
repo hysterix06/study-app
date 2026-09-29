@@ -36,7 +36,7 @@ public extension StudyStore {
         }
         for a in assignments() where a.isOpen {
             guard let due = a.dueAt, due > now.adding(days: -1), due < now.adding(days: Double(days)) else { continue }
-            let c = a.courseId.flatMap { courses[$0]?.shortName }.map { "\($0): " } ?? ""
+            let c = a.courseId.flatMap { courses[$0]?.displayName }.map { "\($0): " } ?? ""
             let w = a.weightPct.map { " (\(Int($0))%)" } ?? ""
             out.append(("asg:\(a.id)", "Due: \(c)\(a.title)\(w)", due.adding(minutes: -15), due, nil, a.url, 24 * 60))
         }

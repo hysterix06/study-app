@@ -35,7 +35,7 @@ public struct Outcomes {
             "recalled_within_48h": recalledWithin48h,
             "study_minutes_by_week": minutesByWeek.map { ["week_start": $0.weekStart.string, "minutes": $0.minutes] },
             "sessions_by_kind": sessionsByKind,
-            "grades": gradeByCourse.map { ["course": $0.course.shortName, "course_id": $0.course.id, "summary": $0.summary.asJSON()] },
+            "grades": gradeByCourse.map { ["course": $0.course.displayName, "course_id": $0.course.id, "summary": $0.summary.asJSON()] },
             "weak_concepts": weakConcepts.prefix(10).map { ["name": $0.concept.name, "times_flagged": $0.count, "course_id": $0.concept.courseId] },
         ]
     }

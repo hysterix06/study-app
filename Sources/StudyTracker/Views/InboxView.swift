@@ -166,7 +166,7 @@ struct FileToFileRow: View {
                 Picker("Role", selection: $role) { ForEach(MaterialRole.allCases) { Text($0.label).tag($0) } }.labelsHidden().frame(width: 130)
                 Picker("Course", selection: $courseId) {
                     Text("Choose course").tag(Int?.none)
-                    ForEach(courses) { c in Text(c.shortName).tag(Int?.some(c.id)) }
+                    ForEach(courses) { c in Text(c.displayName).tag(Int?.some(c.id)) }
                 }.labelsHidden().frame(width: 140)
                 Button("Remove") { model.run("Moved \(m.title) to the Trash.") { try model.store.deleteMaterial(m.id); return nil } }.buttonStyle(QuietButtonStyle())
                 Button("Confirm") {
@@ -196,7 +196,7 @@ struct ReadyRow: View {
             CourseDot(color: course?.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(m.title).font(.stBody).lineLimit(1)
-                Text("\(course?.shortName ?? "") · \(m.role.label)").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                Text("\(course?.displayName ?? "") · \(m.role.label)").font(.stSmall).foregroundStyle(Theme.tertiaryText)
             }
             Spacer()
             Button("Skip") { model.run("Skipped \(m.title). It stays in its course.") { model.store.skipMaterial(m.id); return nil } }
@@ -229,7 +229,7 @@ struct ProposedAssignmentRow: View {
             Spacer()
             Picker("Course", selection: $courseId) {
                 Text("Choose course").tag(Int?.none)
-                ForEach(courses) { c in Text(c.shortName).tag(Int?.some(c.id)) }
+                ForEach(courses) { c in Text(c.displayName).tag(Int?.some(c.id)) }
             }.labelsHidden().frame(width: 140)
             Button("Dismiss") { model.run("Dismissed.") { try model.store.dismissProposed(a.id); return nil } }.buttonStyle(QuietButtonStyle())
             Button("Confirm") { model.run("Added \(a.title).") { try model.store.confirmProposed(a.id, courseId: courseId); return nil } }
@@ -309,7 +309,7 @@ struct ICSPreviewSheet: View {
 
     func courseName(_ ref: ICSImportPlan.CourseRef, courses: [Int: Course], plan: ICSImportPlan) -> String {
         switch ref {
-        case .existing(let id): return courses[id]?.shortName ?? ""
+        case .existing(let id): return courses[id]?.displayName ?? ""
         case .new(let key): return (plan.newCourses.first { $0.key == key }).map { $0.code ?? $0.name } ?? "" + " (new)"
         }
     }

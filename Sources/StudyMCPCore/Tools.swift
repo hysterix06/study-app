@@ -32,7 +32,7 @@ enum ToolCatalog {
             "id": a.id, "title": a.title, "kind": a.kind.rawValue, "status": a.status.rawValue, "due_at": tzString(a.dueAt, store),
             "confirmed": a.confirmed, "source": a.source,
         ]
-        if let c = a.courseId { d["course_id"] = c; d["course"] = courses[c]?.shortName ?? "" }
+        if let c = a.courseId { d["course_id"] = c; d["course"] = courses[c]?.displayName ?? "" }
         if let v = a.weightPct { d["weight_pct"] = v }
         if let v = a.estHours { d["est_hours"] = v }
         if let v = a.score { d["score"] = v }
@@ -62,21 +62,21 @@ enum ToolCatalog {
                 "next_class": snap.nextClass.map { $0.asJSON(tz: store.timezone, courses: courses) } as Any,
                 "today": snap.today.map { $0.asJSON(tz: store.timezone, courses: courses) },
                 "due_next_7_days": snap.dueSoon.map { a -> [String: Any] in
-                    ["id": a.id, "title": a.title, "course": a.courseId.flatMap { courses[$0]?.shortName } ?? "", "due_at": tzString(a.dueAt, store),
+                    ["id": a.id, "title": a.title, "course": a.courseId.flatMap { courses[$0]?.displayName } ?? "", "due_at": tzString(a.dueAt, store),
                      "kind": a.kind.rawValue, "status": a.status.rawValue, "weight_pct": a.weightPct as Any, "overdue": a.isOverdue(now: snap.now)]
                 },
                 "cards_due": snap.cardsDue,
-                "unprocessed_materials": snap.unprocessed.map { ["id": $0.id, "title": $0.title, "course": $0.courseId.flatMap { courses[$0]?.shortName } ?? ""] },
+                "unprocessed_materials": snap.unprocessed.map { ["id": $0.id, "title": $0.title, "course": $0.courseId.flatMap { courses[$0]?.displayName } ?? ""] },
                 "proposed_pending": snap.proposedPending,
                 "suggested_action": snap.suggested.title,
             ])
         },
         Tool(name: "list_courses", title: "List courses",
-             description: "Courses with code, name, instructor, term, grading scale, target grade and pass mark.",
+             description: "Courses with code, name, short name, instructor, term, grading scale, target grade and pass mark.",
              schema: Schema.object(["include_archived": Schema.bool("Include archived courses (default false)")]), write: false) { a, store in
             let terms = Dictionary(uniqueKeysWithValues: store.terms().map { ($0.id, $0.name) })
             return .json(store.courses(includeArchived: try a.bool("include_archived", default: false)).map { c in
-                ["id": c.id, "code": c.code as Any, "name": c.name, "instructor": c.instructor as Any, "term": terms[c.termId] ?? "",
+                ["id": c.id, "code": c.code as Any, "name": c.name, "short_name": c.shortName as Any, "instructor": c.instructor as Any, "term": terms[c.termId] ?? "",
                  "kind": c.kind, "grade_scale": c.gradeScale.rawValue, "target_grade": c.targetGrade as Any, "pass_mark": c.passMark as Any,
                  "archived": c.archived]
             })

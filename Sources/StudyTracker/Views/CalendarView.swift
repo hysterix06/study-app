@@ -299,7 +299,7 @@ struct OccurrenceBlock: View {
             Rectangle().fill(color.opacity(busy ? 0.35 : 0.9)).frame(width: 3)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 3) {
-                    Text(course?.shortName ?? occ.title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                    Text(course?.displayName ?? occ.title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
                     if occ.status == .modified { Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 8)).accessibilityLabel("Changed") }
                 }
                 if height > 30 {
@@ -553,7 +553,7 @@ struct SlotQuickAdd: View {
             TextField(asEvent ? "Event title" : "What's due?", text: $text).textFieldStyle(.roundedBorder).onSubmit(save)
             Picker("Course", selection: $courseId) {
                 Text("No course").tag(Int?.none)
-                ForEach(model.store.courses()) { c in Text(c.shortName).tag(Int?.some(c.id)) }
+                ForEach(model.store.courses()) { c in Text(c.displayName).tag(Int?.some(c.id)) }
             }
             HStack { Spacer(); Button("Add", action: save).buttonStyle(PrimaryButtonStyle()).disabled(text.isEmpty || (!asEvent && courseId == nil)) }
         }
@@ -616,7 +616,7 @@ struct MonthView: View {
                         ForEach(occ.prefix(max(0, 3 - dl.count))) { o in
                             HStack(spacing: 3) {
                                 CourseDot(color: o.courseId.flatMap { data.courses[$0]?.color }, size: 5)
-                                Text(o.allDay ? o.title : "\(Formatters.time(o.start, tz: tz)) \(o.courseId.flatMap { data.courses[$0]?.shortName } ?? o.title)")
+                                Text(o.allDay ? o.title : "\(Formatters.time(o.start, tz: tz)) \(o.courseId.flatMap { data.courses[$0]?.displayName } ?? o.title)")
                                     .font(.system(size: 10)).lineLimit(1).strikethrough(o.status == .canceled)
                             }
                         }

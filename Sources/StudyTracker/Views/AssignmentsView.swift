@@ -17,7 +17,7 @@ struct AssignmentsScreen: View {
                         Spacer()
                         Picker("Course", selection: $courseFilter) {
                             Text("All courses").tag(0)
-                            ForEach(model.store.courses()) { c in Text(c.shortName).tag(c.id) }
+                            ForEach(model.store.courses()) { c in Text(c.displayName).tag(c.id) }
                         }.frame(width: 180).labelsHidden()
                         Picker("", selection: $board) { Image(systemName: "list.bullet").tag(false); Image(systemName: "rectangle.split.3x1").tag(true) }
                             .pickerStyle(.segmented).frame(width: 90).labelsHidden()
@@ -77,12 +77,12 @@ struct QuickAddBar: View {
                     // The course chip is a picker; it is highlighted when the course is missing or ambiguous.
                     Menu {
                         ForEach(parsed.courseCandidates.isEmpty ? courses.map(\.id) : parsed.courseCandidates, id: \.self) { id in
-                            if let c = courses.first(where: { $0.id == id }) { Button(c.shortName + " · " + c.name) { pickedCourse = id } }
+                            if let c = courses.first(where: { $0.id == id }) { Button(c.names.prefix(2).joined(separator: " · ")) { pickedCourse = id } }
                         }
-                        if !parsed.courseCandidates.isEmpty { Divider(); ForEach(courses) { c in Button(c.shortName) { pickedCourse = c.id } } }
+                        if !parsed.courseCandidates.isEmpty { Divider(); ForEach(courses) { c in Button(c.displayName) { pickedCourse = c.id } } }
                     } label: {
                         HStack(spacing: 4) {
-                            if let id = courseId, let c = courses.first(where: { $0.id == id }) { CourseDot(color: c.color); Text(c.shortName) }
+                            if let id = courseId, let c = courses.first(where: { $0.id == id }) { CourseDot(color: c.color); Text(c.displayName) }
                             else { Image(systemName: "questionmark.circle"); Text(parsed.courseCandidates.count > 1 ? "Which course?" : "Pick a course") }
                         }.font(.stSmall)
                     }
@@ -211,7 +211,7 @@ struct AssignmentRow: View {
                 Text(a.title).font(.stBody).strikethrough(!a.isOpen && a.status == .submitted ? false : false)
                     .foregroundStyle(a.isOpen ? .primary : Theme.secondaryText)
                 HStack(spacing: 6) {
-                    Text(course?.shortName ?? "No course").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                    Text(course?.displayName ?? "No course").font(.stSmall).foregroundStyle(Theme.tertiaryText)
                     if a.groupMembers != nil { Image(systemName: "person.2").font(.system(size: 10)).foregroundStyle(Theme.tertiaryText).accessibilityLabel("Group work") }
                     if a.source == "moodle" { Text("Moodle").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
                 }
@@ -311,7 +311,7 @@ struct AssignmentDetail: View {
                 TextField("Title", text: $assignment.title, axis: .vertical).font(.stBodyStrong).textFieldStyle(.plain)
                 Form {
                     Picker("Course", selection: $assignment.courseId) {
-                        ForEach(courses) { c in Text(c.shortName).tag(Int?.some(c.id)) }
+                        ForEach(courses) { c in Text(c.displayName).tag(Int?.some(c.id)) }
                     }
                     Picker("Kind", selection: $assignment.kind) { ForEach(AssignmentKind.allCases) { Text($0.label).tag($0) } }
                     Picker("Status", selection: $assignment.status) { ForEach(AssignmentStatus.allCases) { Text($0.label).tag($0) } }

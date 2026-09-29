@@ -5,7 +5,7 @@ import Foundation
 public enum Migrations {
     public static var currentVersion: Int { all.count }
 
-    public static let all: [String] = [v1]
+    public static let all: [String] = [v1, v2]
 
     public static func migrate(_ db: Database) throws {
         let version = db.userVersion
@@ -357,5 +357,9 @@ public enum Migrations {
       entity_id INTEGER,
       detail TEXT
     );
+    """
+
+    static let v2 = """
+    ALTER TABLE courses ADD COLUMN short_name TEXT;
     """
 }

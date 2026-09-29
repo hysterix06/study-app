@@ -20,8 +20,8 @@ struct CoursesScreen: View {
                         HStack(spacing: 8) {
                             CourseDot(color: c.color)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(c.shortName).font(.stBodyStrong)
-                                Text(c.name).font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                                Text(c.displayName).font(.stBodyStrong)
+                                if let sub = c.secondaryName { Text(sub).font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(1) }
                             }
                         }
                         .opacity(c.archived ? 0.5 : 1)
@@ -199,7 +199,7 @@ struct CourseMaterials: View {
                 SectionHeader(title: "Materials")
                 Button("Add files…") { model.chooseFilesToImport() }.buttonStyle(.borderless).font(.stSmall)
             }
-            if list.isEmpty { EmptyState(text: "Drop slides, PDFs or Word files here to add them to \(course.shortName).") }
+            if list.isEmpty { EmptyState(text: "Drop slides, PDFs or Word files here to add them to \(course.displayName).") }
             ForEach(list) { m in MaterialRow(material: m) }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -497,7 +497,8 @@ struct CourseEditor: View {
             Text(course.id == 0 ? "New course" : "Edit course").font(.stHeading)
             Form {
                 TextField("Code", text: Binding(get: { course.code ?? "" }, set: { course.code = $0 }), prompt: Text("HM210"))
-                TextField("Name", text: $course.name, prompt: Text("Revenue Management"))
+                TextField("Name", text: $course.name, prompt: Text("Hospitality Financial Accounting"))
+                TextField("Short name", text: Binding(get: { course.shortName ?? "" }, set: { course.shortName = $0 }), prompt: Text("Accounting"))
                 TextField("Instructor", text: Binding(get: { course.instructor ?? "" }, set: { course.instructor = $0 }))
                 TextField("Other names (comma separated)", text: Binding(get: { course.aliases ?? "" }, set: { course.aliases = $0 }), prompt: Text("revman, RM"))
                 Picker("Type", selection: $course.kind) {

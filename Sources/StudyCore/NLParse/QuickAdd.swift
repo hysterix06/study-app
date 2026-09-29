@@ -232,7 +232,7 @@ public struct QuickAddParser {
             courseId = candidates[0]
         }
         if let courseId, let c = courses.first(where: { $0.id == courseId }) {
-            pieces.insert(.init(kind: .course, text: c.shortName), at: 0)
+            pieces.insert(.init(kind: .course, text: c.displayName), at: 0)
         }
 
         // Kind keywords stay in the title.

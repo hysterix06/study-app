@@ -222,7 +222,7 @@ struct AssignmentLine: View {
             CourseDot(color: a.courseId.flatMap { courses[$0]?.color })
             if a.kind == .exam { Image(systemName: "exclamationmark.square").foregroundStyle(Theme.secondaryText).accessibilityLabel("Exam") }
             Text(a.title).font(.stBody).lineLimit(1)
-            if let c = a.courseId.flatMap({ courses[$0] }) { Text(c.shortName).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+            if let c = a.courseId.flatMap({ courses[$0] }) { Text(c.displayName).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
             Spacer()
             if let w = a.weightPct { Chip(text: Formatters.percent(w)) }
             HStack(spacing: 4) {

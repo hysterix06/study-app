@@ -59,7 +59,7 @@ final class NotificationService {
         let courses = store.courseMap()
         for a in store.assignments() where a.isOpen {
             guard let due = a.dueAt, due > now, due < now.adding(days: 8) else { continue }
-            let course = a.courseId.flatMap { courses[$0]?.shortName } ?? ""
+            let course = a.courseId.flatMap { courses[$0]?.displayName } ?? ""
             add("due24-\(a.id)", "Due tomorrow: \(a.title)", "\(course) · \(Formatters.dayTime(due, tz: tz))", at: due.adding(hours: -24))
             add("due2-\(a.id)", "Due in 2 hours: \(a.title)", course, at: due.adding(hours: -2))
         }
@@ -171,11 +171,12 @@ final class CalendarSyncService {
             for a in wanted {
                 let key = "rem:\(a.id)"
                 let done = !a.isOpen
-                let fp = "\(a.title)|\(a.dueAt?.timeIntervalSince1970 ?? 0)|\(done)"
+                let title = (a.courseId.flatMap { courses[$0]?.displayName }.map { "\($0): " } ?? "") + a.title
+                let fp = "\(title)|\(a.dueAt?.timeIntervalSince1970 ?? 0)|\(done)"
                 if let e = map[key], e.fingerprint == fp { map.removeValue(forKey: key); continue }
                 let r = (map[key].flatMap { ek.calendarItem(withIdentifier: $0.targetId) as? EKReminder }) ?? EKReminder(eventStore: ek)
                 r.calendar = list
-                r.title = (a.courseId.flatMap { courses[$0]?.shortName }.map { "\($0): " } ?? "") + a.title
+                r.title = title
                 if let due = a.dueAt {
                     r.dueDateComponents = calendar(in: tz).dateComponents(in: tz, from: due)
                     r.alarms = [EKAlarm(absoluteDate: due.adding(hours: -24))]

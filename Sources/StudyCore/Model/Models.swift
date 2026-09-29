@@ -79,6 +79,8 @@ public struct Course: Identifiable, Hashable {
     public var termId: Int
     public var code: String?
     public var name: String
+    /// What the student calls it day to day ("Accounting" for "Hospitality Financial Accounting").
+    public var shortName: String?
     public var instructor: String?
     public var color: String
     public var aliases: String?
@@ -89,24 +91,33 @@ public struct Course: Identifiable, Hashable {
     public var moodleId: Int?
     public var archived: Bool
 
-    public init(id: Int = 0, termId: Int, code: String?, name: String, instructor: String? = nil, color: String = "slate",
+    public init(id: Int = 0, termId: Int, code: String?, name: String, shortName: String? = nil, instructor: String? = nil, color: String = "slate",
                 aliases: String? = nil, kind: String = "lecture", gradeScale: GradeScale = .percent,
                 targetGrade: Double? = nil, passMark: Double? = nil, moodleId: Int? = nil, archived: Bool = false) {
-        self.id = id; self.termId = termId; self.code = code; self.name = name; self.instructor = instructor
+        self.id = id; self.termId = termId; self.code = code; self.name = name; self.shortName = shortName; self.instructor = instructor
         self.color = color; self.aliases = aliases; self.kind = kind; self.gradeScale = gradeScale
         self.targetGrade = targetGrade; self.passMark = passMark; self.moodleId = moodleId; self.archived = archived
     }
     init(row r: Row) {
-        id = r.i("id"); termId = r.i("term_id"); code = r.string("code"); name = r.str("name")
+        id = r.i("id"); termId = r.i("term_id"); code = r.string("code"); name = r.str("name"); shortName = r.string("short_name")
         instructor = r.string("instructor"); color = r.string("color") ?? "slate"; aliases = r.string("aliases")
         kind = r.string("kind") ?? "lecture"; gradeScale = GradeScale(rawValue: r.str("grade_scale")) ?? .percent
         targetGrade = r.double("target_grade"); passMark = r.double("pass_mark"); moodleId = r.int("moodle_id")
         archived = r.bool("archived")
     }
-    /// "MKT210" or the name when there is no code.
-    public var shortName: String { (code?.isEmpty == false) ? code! : name }
+    /// Short name, full name, code: the display priority, without blanks or repeats.
+    public var names: [String] {
+        [shortName, name, code].compactMap { $0?.nilIfEmpty }.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+    }
+    /// The label shown everywhere: short name, else full name, else code.
+    public var displayName: String { names.first ?? "" }
+    /// The next label after `displayName`, for a secondary line.
+    public var secondaryName: String? { names.dropFirst().first }
+    /// "MKT210" or the name when there is no code. Stable across short-name edits, so used for folders and tags.
+    public var codeOrName: String { code?.nilIfEmpty ?? name }
+    /// The short name plus the comma-separated aliases, for matching free text to this course.
     public var aliasList: [String] {
-        (aliases ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        ([shortName ?? ""] + (aliases ?? "").split(separator: ",").map(String.init)).compactMap(\.nilIfEmpty)
     }
 }
 

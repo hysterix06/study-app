@@ -71,7 +71,7 @@ public enum Prompts {
         }
         func materialLine(_ idString: String) -> String {
             guard let id = Int(idString), let m = store?.material(id) else { return "material \(idString)" }
-            let course = m.courseId.flatMap { store?.course($0) }.map { " for \($0.shortName)" } ?? ""
+            let course = m.courseId.flatMap { store?.course($0) }.map { " for \($0.displayName)" } ?? ""
             return "material \(id) (\"\(m.title)\"\(course))"
         }
         let body: String
