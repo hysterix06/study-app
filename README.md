@@ -20,7 +20,7 @@ The script needs Xcode (Swift 6) and macOS 15 or later. It produces:
 
 | Output | What it is |
 | --- | --- |
-| `dist/Study Tracker.app` | The app, with the MCP server inside (`Contents/MacOS/study-mcp`) |
+| `dist/Study Tracker.app` | The app, with the MCP server inside (`Contents/MacOS/study-mcp`). With `--install` it moves to `/Applications` instead, so only one copy is registered. |
 | `dist/study-tracker.mcpb` | The same server as a Claude Desktop extension |
 
 ## First run
@@ -100,7 +100,7 @@ Calendar links and the Moodle token are stored in the macOS Keychain.
 
 ```sh
 swift build                 # app, MCP server and core
-swift test                  # 81 tests: schedule/DST, ICS, quick add, grades, FSRS, Today rules,
+swift test                  # 82 tests: schedule/DST, ICS, quick add, grades, FSRS, Today rules,
                             # planner, parsers (incl. on-device OCR), and MCP integration over stdio
 swift run StudyTracker      # run unbundled (notifications need the .app bundle)
 ```
@@ -111,4 +111,4 @@ swift run StudyTracker      # run unbundled (notifications need the .app bundle)
 | `Sources/StudyMCPCore`, `Sources/study-mcp` | The MCP server |
 | `Sources/StudyTracker` | The SwiftUI app |
 | `Tests/StudyCoreTests` | Tests and fixtures (Outlook, Moodle and shift `.ics` files; PPTX/DOCX/PDF generated at test time) |
-| `scripts/` | `build-app.sh`, `make_icon_svg.py` (the brain icon is generated from code) |
+| `scripts/` | `build-app.sh`, `make_icon_svg.py` (the synapse icon is generated from code) |

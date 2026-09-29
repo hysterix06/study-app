@@ -82,8 +82,17 @@ codesign --verify --deep --strict "$APP"
 if [[ "${1:-}" == "--install" ]]; then
   echo "→ Installing to /Applications"
   if pgrep -x StudyTracker >/dev/null; then osascript -e 'quit app "Study Tracker"' || true; sleep 1; fi
-  ditto "$APP" "/Applications/Study Tracker.app"
-  echo "Installed: /Applications/Study Tracker.app"
+  INSTALLED="/Applications/Study Tracker.app"
+  LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  ditto "$APP" "$INSTALLED"
+  # The staged copy has the same bundle ID, so it would show up as a second app in Apps and Spotlight.
+  "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true   # fails harmlessly if it was never registered
+  rm -rf "$APP"
+  # Finder and the Dock cache icons per bundle; re-register so a changed icon shows up without a logout.
+  touch "$INSTALLED"
+  "$LSREGISTER" -f "$INSTALLED"
+  killall Dock 2>/dev/null || true
+  APP="$INSTALLED"
 fi
 
 echo "Done: $APP"

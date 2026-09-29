@@ -332,7 +332,7 @@ final class AppModel {
 
     func autoProcessReady() {
         guard claude.findCLI() != nil, claudeRun == nil,
-              let m = store.materials(statuses: ["ready"], processed: false).first(where: { $0.role == .lecture }) else { return }
+              let m = store.unprocessedMaterials().first(where: { $0.role == .lecture }) else { return }
         process(materialId: m.id)
     }
 

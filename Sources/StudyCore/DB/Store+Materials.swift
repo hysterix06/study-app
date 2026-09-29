@@ -192,6 +192,9 @@ public extension StudyStore {
             try db.execute("DELETE FROM materials WHERE id = ?", [id])
             audit("delete_material", entity: "material", id: id, detail: m.title)
         }
+        // SQLite can reuse the id, so a stale skip must not hide the next import.
+        let skipped = skippedMaterialIds()
+        if skipped.contains(id) { setSkippedMaterialIds(skipped.subtracting([id])) }
         if removeFiles {
             if let sp = m.storedPath { try? FileManager.default.trashItem(at: paths.absolute(sp), resultingItemURL: nil) }
             if let ap = m.assetsPath { try? FileManager.default.removeItem(at: paths.absolute(ap)) }
@@ -200,6 +203,27 @@ public extension StudyStore {
 
     func markProcessed(_ id: Int) throws {
         try db.execute("UPDATE materials SET processed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?", [id])
+    }
+
+    // MARK: Inbox skips
+
+    /// Filed materials waiting to be processed, minus any the student skipped.
+    func unprocessedMaterials() -> [Material] {
+        let skipped = skippedMaterialIds()
+        return materials(statuses: ["ready"], processed: false).filter { !skipped.contains($0.id) }
+    }
+
+    /// Takes a filed material out of the Inbox without processing it (which would skew Insights and prompt a recall)
+    /// or deleting it. It stays in its course and in Study, where it can still be processed.
+    func skipMaterial(_ id: Int) {
+        setSkippedMaterialIds(skippedMaterialIds().union([id]))
+        audit("skip_material", entity: "material", id: id)
+    }
+
+    func skippedMaterialIds() -> Set<Int> { Set(JSON.intArray(setting("inbox_skipped_materials"))) }
+
+    private func setSkippedMaterialIds(_ ids: Set<Int>) {
+        setSetting("inbox_skipped_materials", ids.isEmpty ? nil : JSON.string(ids.sorted()))
     }
 
     /// Adds on-device OCR of pictures inside slides and documents, so text in screenshots and diagrams reaches Claude.

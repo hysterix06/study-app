@@ -3,13 +3,14 @@ import StudyCore
 
 struct InboxScreen: View {
     @Environment(AppModel.self) var model
+    @State private var confirmClear = false
 
     var body: some View {
         let _ = model.revision
         let store = model.store
         let toFile = store.materials().filter { $0.courseId == nil }
-        let ready = store.materials(statuses: ["ready"], processed: false).filter { $0.role == .lecture || $0.role == .reading }
-        let otherReady = store.materials(statuses: ["ready"], processed: false).filter { $0.role == .syllabus || $0.role == .brief || $0.role == .pastExam }
+        let ready = store.unprocessedMaterials().filter { $0.role == .lecture || $0.role == .reading }
+        let otherReady = store.unprocessedMaterials().filter { $0.role == .syllabus || $0.role == .brief || $0.role == .pastExam }
         let problems = store.materials(statuses: ["failed", "needs_ocr"]).filter { $0.courseId != nil }
         let proposed = store.assignments(AssignmentFilter(onlyProposed: true))
         let blocks = store.studyBlocks(statuses: ["proposed"]).filter { $0.createdBy == "claude" }
@@ -23,6 +24,9 @@ struct InboxScreen: View {
                     Spacer()
                     Button { model.chooseFilesToImport() } label: { Label("Add files", systemImage: "plus") }.buttonStyle(QuietButtonStyle())
                     Button { NSWorkspace.shared.open(store.paths.inbox) } label: { Label("Inbox folder", systemImage: "folder") }.buttonStyle(QuietButtonStyle())
+                    if !empty {
+                        Button { confirmClear = true } label: { Label("Clear all…", systemImage: "xmark.circle") }.buttonStyle(QuietButtonStyle())
+                    }
                 }
                 if empty {
                     EmptyState(text: "Nothing needs a decision. Drop slides or PDFs anywhere in this window to add them.", actionTitle: "Add files") { model.chooseFilesToImport() }
@@ -105,6 +109,32 @@ struct InboxScreen: View {
             }
             .padding(28).contentWidth()
         }
+        .confirmationDialog("Clear the Inbox?", isPresented: $confirmClear) {
+            Button("Clear all", role: .destructive) {
+                model.run("Cleared the Inbox.") {
+                    for m in toFile + problems { try model.store.deleteMaterial(m.id) }
+                    for m in ready + otherReady { model.store.skipMaterial(m.id) }
+                    for a in proposed { try model.store.dismissProposed(a.id) }
+                    for b in blocks { try model.store.setBlockStatus(b.id, "dismissed") }
+                    for c in cards { try model.store.deleteCard(c.id) }
+                    for c in conflicts { try model.store.resolveConflict(c.id, acceptIncoming: false) }
+                    return nil
+                }
+            }
+        } message: {
+            Text(clearSummary(files: toFile.count + problems.count, skipped: ready.count + otherReady.count,
+                              proposals: proposed.count + blocks.count + cards.count, conflicts: conflicts.count))
+        }
+    }
+
+    /// Spells out what "Clear all" does to each kind of item, naming only the kinds that are present.
+    func clearSummary(files: Int, skipped: Int, proposals: Int, conflicts: Int) -> String {
+        var parts: [String] = []
+        if files > 0 { parts.append("\(files) unfiled or unreadable file\(files == 1 ? "" : "s") will move to the Trash.") }
+        if skipped > 0 { parts.append("\(skipped) filed item\(skipped == 1 ? "" : "s") will be skipped but stay in \(skipped == 1 ? "its course" : "their courses").") }
+        if proposals > 0 { parts.append("\(proposals) proposed deadline\(proposals == 1 ? "" : "s"), study block\(proposals == 1 ? "" : "s") or flashcard\(proposals == 1 ? "" : "s") will be dismissed.") }
+        if conflicts > 0 { parts.append("\(conflicts) conflict\(conflicts == 1 ? "" : "s") will keep your version.") }
+        return parts.joined(separator: " ")
     }
 
     func section<C: View>(_ title: String, count: Int, trailing: AnyView? = nil, @ViewBuilder content: () -> C) -> some View {
@@ -138,6 +168,7 @@ struct FileToFileRow: View {
                     Text("Choose course").tag(Int?.none)
                     ForEach(courses) { c in Text(c.shortName).tag(Int?.some(c.id)) }
                 }.labelsHidden().frame(width: 140)
+                Button("Remove") { model.run("Moved \(m.title) to the Trash.") { try model.store.deleteMaterial(m.id); return nil } }.buttonStyle(QuietButtonStyle())
                 Button("Confirm") {
                     guard let courseId else { return }
                     model.run("Filed \(m.title).") { try model.store.confirmMaterial(m.id, courseId: courseId, role: role); return nil }
@@ -168,6 +199,8 @@ struct ReadyRow: View {
                 Text("\(course?.shortName ?? "") · \(m.role.label)").font(.stSmall).foregroundStyle(Theme.tertiaryText)
             }
             Spacer()
+            Button("Skip") { model.run("Skipped \(m.title). It stays in its course.") { model.store.skipMaterial(m.id); return nil } }
+                .buttonStyle(QuietButtonStyle()).help("Remove from the Inbox without processing. The file stays in its course.")
             if prompt == "process_lecture" && cli {
                 Button("Copy prompt") { model.copyPrompt(prompt, ["material_id": "\(m.id)"]) }.buttonStyle(QuietButtonStyle())
                 Button("Process with Claude") { model.process(materialId: m.id) }.buttonStyle(PrimaryButtonStyle()).disabled(model.claudeRun != nil)

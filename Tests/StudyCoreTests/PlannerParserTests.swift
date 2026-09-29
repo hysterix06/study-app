@@ -177,6 +177,21 @@ final class ParserTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.paths.absolute(filed.assetsPath!).path))
     }
 
+    func testSkipLeavesInboxButKeepsLectureFiled() throws {
+        let store = try makeStore()
+        let ids = try seedCourses(store)
+        guard case .imported(let id, _) = store.importMaterial(from: try slides(), courseId: ids.hm) else { return XCTFail() }
+        XCTAssertEqual(store.unprocessedMaterials().map(\.id), [id])
+        XCTAssertEqual(store.inboxCount(), 1)
+        store.skipMaterial(id)
+        XCTAssertTrue(store.unprocessedMaterials().isEmpty)
+        XCTAssertEqual(store.inboxCount(), 0)
+        XCTAssertEqual(store.material(id)?.courseId, ids.hm, "skipping keeps the lecture in its course")
+        XCTAssertNil(store.material(id)?.processedAt, "skipping is not processing, so Insights stay honest")
+        try store.deleteMaterial(id)
+        XCTAssertTrue(store.skippedMaterialIds().isEmpty, "SQLite can reuse the id; the next import must not inherit the skip")
+    }
+
     func testRoleGuessing() {
         XCTAssertEqual(StudyStore.guessRole(filename: "HM210 Course Outline.pdf", title: "", text: ""), .syllabus)
         XCTAssertEqual(StudyStore.guessRole(filename: "Marking rubric report.docx", title: "", text: ""), .rubric)

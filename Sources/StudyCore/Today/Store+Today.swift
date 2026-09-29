@@ -51,7 +51,7 @@ public extension StudyStore {
     func inboxCount() -> Int {
         let files = (try? db.scalarInt("SELECT count(*) FROM materials WHERE status IN ('inbox','failed','needs_ocr') AND course_id IS NULL")) ?? 0
         let failed = (try? db.scalarInt("SELECT count(*) FROM materials WHERE status IN ('failed','needs_ocr') AND course_id IS NOT NULL")) ?? 0
-        let ready = (try? db.scalarInt("SELECT count(*) FROM materials WHERE status = 'ready' AND processed_at IS NULL AND role IN ('lecture','reading')")) ?? 0
+        let ready = unprocessedMaterials().filter { $0.role == .lecture || $0.role == .reading }.count
         let proposed = (try? db.scalarInt("SELECT count(*) FROM assignments WHERE confirmed = 0 AND dismissed = 0")) ?? 0
         let blocks = (try? db.scalarInt("SELECT count(*) FROM study_blocks WHERE status = 'proposed' AND created_by = 'claude'")) ?? 0
         return files + failed + ready + proposed + blocks + conflicts().count + proposedCardCount()
@@ -82,7 +82,7 @@ public extension StudyStore {
         let settings = plannerSettings
         let busy = busyIntervals(from: now, to: now.adding(days: 15))
         let blocks = studyBlocks(from: now.adding(days: -1), to: now.adding(days: 30), statuses: ["planned", "done"])
-        let unprocessed = materials(statuses: ["ready"], processed: false).filter { $0.role == .lecture || $0.role == .reading }
+        let unprocessed = unprocessedMaterials().filter { $0.role == .lecture || $0.role == .reading }
         let cardsDue = dueCount(now: now)
         let inputs = TodayInputs(
             now: now, assignments: all, plannedBlockAssignmentIds: Set(blocks.compactMap(\.assignmentId)),
