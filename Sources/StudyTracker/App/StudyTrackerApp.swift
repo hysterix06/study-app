@@ -17,24 +17,29 @@ struct StudyTrackerApp: App {
                 }
             }
             .frame(minWidth: 980, minHeight: 640)
+            .onOpenURL { url in if let r = Route(url: url) { model?.go(r) } }
         }
+        .handlesExternalEvents(matching: [Route.scheme])
         .defaultSize(width: 1240, height: 820)
         .commands {
             if let model {
                 CommandGroup(replacing: .newItem) {
-                    Button("New Assignment") { model.screen = .assignments; model.focusQuickAdd += 1 }.keyboardShortcut("n")
+                    Button("New Assignment") { model.go(.assignments); model.focusQuickAdd += 1 }.keyboardShortcut("n")
                     Button("Import Files…") { model.chooseFilesToImport() }.keyboardShortcut("o")
                 }
                 CommandGroup(replacing: .undoRedo) {
                     Button("Undo") { model.performUndo() }.keyboardShortcut("z").disabled(model.toast?.undo == nil)
                 }
                 CommandMenu("Go") {
-                    ForEach(Array(Screen.sidebar.enumerated()), id: \.element) { i, s in
-                        Button(s.title) { model.screen = s }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")))
+                    ForEach(Array(SidebarItem.numbered.enumerated()), id: \.element) { i, s in
+                        Button(s.title) { model.open(s) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")))
                     }
                     Divider()
+                    Button("Back") { model.goBack() }.keyboardShortcut("[").disabled(!model.canGoBack)
+                    Button("Forward") { model.goForward() }.keyboardShortcut("]").disabled(!model.canGoForward)
+                    Divider()
                     Button("Command Palette") { model.showPalette = true }.keyboardShortcut("k")
-                    Button("Settings") { model.screen = .settings }.keyboardShortcut(",")
+                    Button("Settings") { model.go(.settings(.general)) }.keyboardShortcut(",")
                 }
                 CommandMenu("Study") {
                     Button("Start Review") { model.startReview() }.keyboardShortcut("r", modifiers: [.command, .shift])
@@ -63,10 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let store = try StudyStore.open()
             seedDefaults(store)
-            // Launch arguments for demos and screenshots: -sampleData YES -screen calendar
+            // Launch arguments for demos and screenshots: -sampleData YES -route calendar/month
             if UserDefaults.standard.bool(forKey: "sampleData") && !SampleData.isLoaded(store) { try? SampleData.load(store) }
             let model = AppModel(store: store)
-            if let s = UserDefaults.standard.string(forKey: "screen").flatMap(Screen.init(rawValue:)) { model.screen = s }
+            if let r = UserDefaults.standard.string(forKey: "route").flatMap(Route.init(path:)) { model.go(r, replace: true) }
             DebugSnapshots.runIfRequested(model: model)
             return model
         } catch {
@@ -108,6 +113,15 @@ struct RootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 ToastHost()
             }
+            .navigationTitle(model.breadcrumb.joined(separator: " › "))
+            .toolbar {
+                ToolbarItemGroup(placement: .navigation) {
+                    Button { model.goBack() } label: { Image(systemName: "chevron.left") }
+                        .disabled(!model.canGoBack).help("Back (⌘[)")
+                    Button { model.goForward() } label: { Image(systemName: "chevron.right") }
+                        .disabled(!model.canGoForward).help("Forward (⌘])")
+                }
+            }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             loadURLs(providers) { model.importFiles($0) }
@@ -122,14 +136,14 @@ struct RootView: View {
     }
 
     @ViewBuilder var detail: some View {
-        switch model.screen {
-        case .today: TodayView()
+        switch model.route.screen {
+        case .today, .setup: TodayView()
+        case .inbox: InboxScreen()
         case .calendar: CalendarScreen()
         case .assignments: AssignmentsScreen()
-        case .courses: CoursesScreen()
+        case .course: CoursesScreen()
         case .study: StudyScreen()
-        case .inbox: InboxScreen()
-        case .settings: SettingsScreen()
+        case .connections, .settings: SettingsScreen()
         }
     }
 }
@@ -156,8 +170,8 @@ struct Sidebar: View {
         let _ = model.revision
         let inbox = model.store.inboxCount()
         VStack(spacing: 0) {
-            List(selection: Binding(get: { model.screen }, set: { if let s = $0 { model.screen = s } })) {
-                ForEach(Screen.sidebar) { s in
+            List(selection: Binding(get: { model.sidebarItem }, set: { if let s = $0 { model.open(s) } })) {
+                ForEach(SidebarItem.sidebar) { s in
                     Label(s.title, systemImage: s.icon)
                         .badge(s == .inbox && inbox > 0 ? inbox : 0)
                         .tag(s)
@@ -180,12 +194,12 @@ struct Sidebar: View {
                     Spacer()
                 }.padding(.horizontal, 14).padding(.vertical, 8)
             }
-            Button { model.screen = .settings } label: {
-                Label("Settings", systemImage: Screen.settings.icon).frame(maxWidth: .infinity, alignment: .leading)
+            Button { model.go(.settings(.general)) } label: {
+                Label("Settings", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(model.screen == .settings ? Theme.subtleFill : .clear)
+            .background(model.sidebarItem == nil ? Theme.subtleFill : .clear)
         }
     }
 }

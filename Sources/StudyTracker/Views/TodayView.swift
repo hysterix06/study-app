@@ -83,7 +83,7 @@ struct TodayView: View {
             try? model.store.endSession(s.id, summary: nil)
             model.startReview(courseId: s.courseId)
         } else {
-            model.openStudy(s.materialId)
+            if let id = s.materialId { model.openMaterial(id) }
         }
     }
 }
@@ -130,9 +130,9 @@ struct SuggestedActionCard: View {
             }
         case .planExam: model.planStudy(focusAssignment: action.assignmentId)
         case .review: model.startReview()
-        case .recall: if let id = action.materialId { model.openStudy(id) }
+        case .recall: if let id = action.materialId { model.openMaterial(id) }
         case .process: if let id = action.materialId { model.process(materialId: id) }
-        case .approveCards: model.screen = .inbox
+        case .approveCards: model.go(.inbox(.cards))
         case .nothing: break
         }
     }
@@ -162,7 +162,7 @@ struct NextClassCard: View {
                 if n.status == .modified { Chip(text: "Changed from the usual time or room") }
             } else {
                 Text("No classes in the next two weeks.").font(.stBody).foregroundStyle(Theme.secondaryText)
-                Button("Import your timetable") { model.screen = .settings }.buttonStyle(QuietButtonStyle())
+                Button("Import your timetable") { model.go(.connections(.calendars)) }.buttonStyle(QuietButtonStyle())
             }
         }
     }
@@ -179,7 +179,7 @@ struct CountersCard: View {
                 HStack { Image(systemName: "rectangle.stack"); Text("Cards due"); Spacer(); Text("\(cardsDue)").monospacedDigit().fontWeight(.semibold) }
             }.buttonStyle(.plain).disabled(cardsDue == 0)
             Divider()
-            Button { model.screen = .inbox } label: {
+            Button { model.go(.inbox(nil)) } label: {
                 HStack { Image(systemName: "tray"); Text("Inbox"); Spacer(); Text("\(inbox)").monospacedDigit().fontWeight(.semibold) }
             }.buttonStyle(.plain)
         }
@@ -195,7 +195,7 @@ struct DueSoonCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: "Due in the next 7 days", trailing: AnyView(Button("See all") { model.screen = .assignments }.buttonStyle(.borderless).font(.stSmall)))
+            SectionHeader(title: "Due in the next 7 days", trailing: AnyView(Button("See all") { model.go(.assignments) }.buttonStyle(.borderless).font(.stSmall)))
             if items.isEmpty {
                 Text("Nothing due this week.").font(.stBody).foregroundStyle(Theme.secondaryText).padding(.vertical, 6)
             }
@@ -203,7 +203,7 @@ struct DueSoonCard: View {
                 Button { model.openAssignment(a.id) } label: { AssignmentLine(a: a, courses: courses, now: now) }.buttonStyle(.plain)
             }
             if items.count > 5 {
-                Button("\(items.count - 5) more") { model.screen = .assignments }.buttonStyle(.borderless).font(.stSmall)
+                Button("\(items.count - 5) more") { model.go(.assignments) }.buttonStyle(.borderless).font(.stSmall)
             }
         }
     }
@@ -247,13 +247,13 @@ struct OnboardingCard: View {
             VStack(alignment: .leading, spacing: 10) {
                 step(1, "Add your timetable", "Import an .ics file from Outlook or subscribe to a calendar link, or connect Moodle.")
                 step(2, "Drop in your lecture slides", "Drag PowerPoint or PDF files onto this window or into ~/StudyTracker/Inbox.")
-                step(3, "Connect Claude", "One click in Settings → Claude lets Claude Desktop read your lectures and save concepts back here.")
+                step(3, "Connect Claude", "One click in Connections › Claude lets Claude Desktop read your lectures and save concepts back here.")
             }
             HStack {
-                Button("Open Settings") { model.screen = .settings }.buttonStyle(PrimaryButtonStyle())
+                Button("Open Connections") { model.go(.connections(nil)) }.buttonStyle(PrimaryButtonStyle())
                 Button(loading ? "Loading…" : "Try it with sample data") {
                     loading = true
-                    do { try SampleData.load(model.store); model.refresh(); model.show("Sample term, courses, classes and a lecture were added. Remove them any time in Settings → Data.") }
+                    do { try SampleData.load(model.store); model.refresh(); model.show("Sample term, courses, classes and a lecture were added. Remove them any time in Settings › Data and export.") }
                     catch { model.fail(error) }
                     loading = false
                 }.buttonStyle(QuietButtonStyle())

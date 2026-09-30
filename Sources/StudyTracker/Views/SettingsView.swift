@@ -28,17 +28,42 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .data: return "externaldrive"
         }
     }
+
+    /// Until Settings moves to its own window, connections and preference panes share this in-window screen.
+    init(route: Route) {
+        switch route {
+        case .settings(.terms): self = .terms
+        case .settings(.notifications): self = .apple
+        case .settings(.data): self = .data
+        case .connections(.calendars): self = .calendars
+        case .connections(.claude): self = .claude
+        case .connections(.apple): self = .apple
+        case .connections: self = .moodle
+        default: self = .general
+        }
+    }
+
+    var route: Route {
+        switch self {
+        case .general: return .settings(.general)
+        case .terms: return .settings(.terms)
+        case .data: return .settings(.data)
+        case .calendars: return .connections(.calendars)
+        case .moodle: return .connections(.moodle)
+        case .claude: return .connections(.claude)
+        case .apple: return .connections(.apple)
+        }
+    }
 }
 
 struct SettingsScreen: View {
     @Environment(AppModel.self) var model
-    @AppStorage("settings.section") var section: SettingsSection = .general
-
     var body: some View {
         let _ = model.revision
+        let section = SettingsSection(route: model.route)
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                List(selection: Binding(get: { section }, set: { if let s = $0 { section = s } })) {
+                List(selection: Binding(get: { section }, set: { if let s = $0 { model.go(s.route, replace: true) } })) {
                     ForEach(SettingsSection.allCases) { s in Label(s.title, systemImage: s.icon).tag(s) }
                 }
                 Text("Study Tracker | v\(appVersion)").font(.stSmall).foregroundStyle(Theme.tertiaryText).textSelection(.enabled).padding(12)
@@ -247,7 +272,7 @@ struct CalendarSettings: View {
                 Text("Where to find calendar links").font(.stBodyStrong)
                 Text("Outlook on the web: Settings → Calendar → Shared calendars → Publish a calendar → copy the ICS link. If publishing is blocked, use File → Save Calendar in Outlook for Mac and import the file.")
                     .font(.stSmall).foregroundStyle(Theme.secondaryText)
-                Text("Moodle: Calendar → Export calendar → All events → Get calendar URL. Connecting Moodle directly (Settings → Moodle) also brings grades and course files.")
+                Text("Moodle: Calendar → Export calendar → All events → Get calendar URL. Connecting Moodle directly (Connections › Moodle) also brings grades and course files.")
                     .font(.stSmall).foregroundStyle(Theme.secondaryText)
                 Text("Links contain private tokens. They are stored in your Mac's Keychain, never in the database or logs.").font(.stSmall).foregroundStyle(Theme.tertiaryText)
             }

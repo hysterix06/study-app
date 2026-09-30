@@ -19,9 +19,10 @@ struct CommandPalette: View {
 
     var items: [PaletteItem] {
         var out: [PaletteItem] = []
-        for s in Screen.allCases { out.append(PaletteItem(title: s.title, subtitle: "Go to", icon: s.icon) { model.screen = s }) }
+        for s in SidebarItem.sidebar { out.append(PaletteItem(title: s.title, subtitle: "Go to", icon: s.icon) { model.open(s) }) }
+        out.append(PaletteItem(title: "Settings", subtitle: "Go to", icon: "gearshape") { model.go(.settings(.general)) })
         out += [
-            PaletteItem(title: "Add assignment", subtitle: "Action", icon: "plus") { model.screen = .assignments; model.focusQuickAdd += 1 },
+            PaletteItem(title: "Add assignment", subtitle: "Action", icon: "plus") { model.go(.assignments); model.focusQuickAdd += 1 },
             PaletteItem(title: "Import files", subtitle: "Action", icon: "square.and.arrow.down") { model.chooseFilesToImport() },
             PaletteItem(title: "Start review", subtitle: "Action", icon: "rectangle.stack") { model.startReview() },
             PaletteItem(title: "Plan study blocks", subtitle: "Action", icon: "wand.and.stars") { model.planStudy() },
@@ -38,7 +39,7 @@ struct CommandPalette: View {
             out.append(PaletteItem(title: a.title, subtitle: "Assignment · \(a.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "checklist") { model.openAssignment(a.id) })
         }
         for m in model.store.materials().prefix(60) where m.courseId != nil {
-            out.append(PaletteItem(title: m.title, subtitle: "Lecture · \(m.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "doc") { model.openStudy(m.id) })
+            out.append(PaletteItem(title: m.title, subtitle: "Lecture · \(m.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "doc") { model.openMaterial(m.id) })
         }
         return out
     }

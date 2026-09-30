@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 struct StudyScreen: View {
     @Environment(AppModel.self) var model
-    @AppStorage("study.tab") var tab = "lecture"
+    var tab: StudySegment { if case .study(let s) = model.route { return s == .insights ? .insights : .lectures }; return .lectures }
 
     var body: some View {
         let _ = model.revision
@@ -14,14 +14,16 @@ struct StudyScreen: View {
             HStack {
                 Text("Study").font(.stTitle)
                 Spacer()
-                Picker("", selection: $tab) { Text("Lecture").tag("lecture"); Text("Insights").tag("insights") }
+                Picker("", selection: Binding(get: { tab }, set: { model.go(.study($0), replace: true) })) {
+                    Text("Lecture").tag(StudySegment.lectures); Text("Insights").tag(StudySegment.insights)
+                }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 200)
                 Button { model.startReview() } label: { Label("Review \(model.store.dueCount()) cards", systemImage: "rectangle.stack") }
                     .buttonStyle(QuietButtonStyle()).disabled(model.store.dueCount() == 0)
             }
             .padding(.horizontal, 24).padding(.vertical, 16)
             Divider()
-            if tab == "insights" { InsightsView() } else { LectureStudy() }
+            if tab == .insights { InsightsView() } else { LectureStudy() }
         }
     }
 }
@@ -53,7 +55,7 @@ struct LectureStudy: View {
             if let m = current {
                 ScrollView { StudyFlow(material: m).padding(24).contentWidth() }
             } else {
-                EmptyState(text: "File a lecture under a course and it shows up here, ready to study.", actionTitle: "Go to Inbox") { model.screen = .inbox }
+                EmptyState(text: "File a lecture under a course and it shows up here, ready to study.", actionTitle: "Go to Inbox") { model.go(.inbox(nil)) }
             }
         }
     }

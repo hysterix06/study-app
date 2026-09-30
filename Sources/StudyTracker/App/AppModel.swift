@@ -3,22 +3,24 @@ import AppKit
 import StudyCore
 import UniformTypeIdentifiers
 
-enum Screen: String, CaseIterable, Identifiable {
-    case today, calendar, assignments, courses, study, inbox, settings
+/// Items in the sidebar. Each one opens the last route used under it.
+enum SidebarItem: String, CaseIterable, Identifiable {
+    case today, inbox, calendar, assignments, study, courses
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var icon: String {
         switch self {
         case .today: return "sun.max"
+        case .inbox: return "tray"
         case .calendar: return "calendar"
         case .assignments: return "checklist"
-        case .courses: return "books.vertical"
         case .study: return "brain.head.profile"
-        case .inbox: return "tray"
-        case .settings: return "gearshape"
+        case .courses: return "books.vertical"
         }
     }
-    static let sidebar: [Screen] = [.today, .calendar, .assignments, .courses, .study, .inbox]
+    /// ⌘1…⌘5, in sidebar order.
+    static let numbered: [SidebarItem] = [.today, .inbox, .calendar, .assignments, .study]
+    static let sidebar: [SidebarItem] = numbered + [.courses]
 }
 
 struct Toast: Identifiable {
@@ -33,18 +35,18 @@ struct Toast: Identifiable {
 final class AppModel {
     let store: StudyStore
     var revision = 0
-    var screen: Screen = .today
-    var selectedCourseId: Int?
-    var selectedAssignmentId: Int?
-    var studyMaterialId: Int?
-    var courseTab: CourseTab = .overview
+    /// Where the main window is. The only way to change it is `go(_:)`.
+    private(set) var route: Route = .today
+    private(set) var backStack: [Route] = []
+    private(set) var forwardStack: [Route] = []
+    /// Returning to a sidebar item restores the route last used under it.
+    private var lastRoute: [Route.ScreenKey: Route] = [:]
+    private var lastCourseId: Int?
     var showPalette = false
     var focusQuickAdd = 0
     var toast: Toast?
     var review: ReviewSession?
     var progress: String?
-    var calendarDate = LocalDate.today()
-    var calendarMode: CalendarMode = .week
     var icsPreview: ICSPreview?
     var handwritingMaterialId: Int?
     var claudeRun: ClaudeRunState?
@@ -146,10 +148,147 @@ final class AppModel {
 
     // MARK: Navigation
 
-    func open(_ s: Screen) { screen = s }
-    func openCourse(_ id: Int, tab: CourseTab = .overview) { selectedCourseId = id; courseTab = tab; screen = .courses }
-    func openAssignment(_ id: Int) { selectedAssignmentId = id; screen = .assignments }
-    func openStudy(_ materialId: Int?) { studyMaterialId = materialId; screen = .study }
+    /// Navigates by route. `replace` changes the current entry without adding history (tabs, date steps, filters).
+    func go(_ r: Route, replace: Bool = false) {
+        switch r {
+        case .review(let courseId):
+            startReview(courseId: courseId); return
+        case .activity:
+            go(.connections(.claude), replace: replace); return
+        case .setup:
+            go(.today, replace: replace); return
+        default: break
+        }
+        guard r != route else { return }
+        if !replace {
+            backStack.append(route)
+            if backStack.count > 50 { backStack.removeFirst(backStack.count - 50) }
+            forwardStack.removeAll()
+        }
+        setRoute(r)
+    }
+
+    func go(path: String) { if let r = Route(path: path) { go(r) } }
+
+    var canGoBack: Bool { !backStack.isEmpty }
+    var canGoForward: Bool { !forwardStack.isEmpty }
+
+    func goBack() {
+        guard let r = backStack.popLast() else { return }
+        forwardStack.append(route)
+        setRoute(r)
+    }
+
+    func goForward() {
+        guard let r = forwardStack.popLast() else { return }
+        backStack.append(route)
+        setRoute(r)
+    }
+
+    private func setRoute(_ r: Route) {
+        route = r
+        lastRoute[r.screen] = r
+        if case .course(let id, _) = r { lastCourseId = id }
+    }
+
+    /// Opens a sidebar item at its last route.
+    func open(_ item: SidebarItem) {
+        switch item {
+        case .today: go(.today)
+        case .inbox: go(lastRoute[.inbox] ?? .inbox(nil))
+        case .calendar: go(lastRoute[.calendar] ?? .calendar(.week, nil))
+        case .assignments: go(lastRoute[.assignments] ?? .assignments)
+        case .study: go(lastRoute[.study] ?? .study(.lectures))
+        case .courses:
+            let courses = store.courses()
+            let id = lastCourseId.flatMap { id in courses.contains { $0.id == id } ? id : nil } ?? courses.first?.id
+            if let id { go(lastRoute[.course(id)] ?? .course(id, .overview)) } else { go(.course(0, .overview)) }
+        }
+    }
+
+    var sidebarItem: SidebarItem? {
+        switch route.screen {
+        case .today: return .today
+        case .inbox: return .inbox
+        case .calendar: return .calendar
+        case .assignments: return .assignments
+        case .study: return .study
+        case .course: return .courses
+        case .connections, .settings, .setup: return nil
+        }
+    }
+
+    func openCourse(_ id: Int, tab: CourseTab = .overview) { go(.course(id, tab)) }
+    func openAssignment(_ id: Int) { go(.assignment(id)) }
+    func openMaterial(_ id: Int) { go(.material(id)) }
+
+    /// The course shown on the course screen; selecting another course is a new history entry.
+    var selectedCourseId: Int? {
+        get { if case .course(let id, _) = route, id != 0 { return id }; return lastCourseId }
+        set { go(.course(newValue ?? 0, newValue == nil ? .overview : courseTab)) }
+    }
+
+    var courseTab: CourseTab {
+        get { if case .course(_, let tab) = route { return tab }; return .overview }
+        set { if case .course(let id, _) = route { go(.course(id, newValue), replace: true) } }
+    }
+
+    var selectedAssignmentId: Int? {
+        get { if case .assignment(let id) = route { return id }; return nil }
+        set { if let newValue { go(.assignment(newValue)) } else { go(.assignments, replace: true) } }
+    }
+
+    var studyMaterialId: Int? {
+        get { if case .material(let id) = route { return id }; return nil }
+        set { go(newValue.map { .material($0) } ?? .study(.lectures), replace: true) }
+    }
+
+    var calendarMode: CalendarMode {
+        get { if case .calendar(let m, _) = route { return m }; return .week }
+        set { go(.calendar(newValue, calendarDate), replace: true) }
+    }
+
+    var calendarDate: LocalDate {
+        get {
+            switch route {
+            case .calendar(_, let d): return d ?? LocalDate.today(tz: tz)
+            case .occurrence(let key): return occurrenceDate(key) ?? LocalDate.today(tz: tz)
+            default: return LocalDate.today(tz: tz)
+            }
+        }
+        set { go(.calendar(calendarMode, newValue), replace: true) }
+    }
+
+    /// The local date of an occurrence key: `p12:2026-09-30`, `e5` or `b7`.
+    func occurrenceDate(_ key: String) -> LocalDate? {
+        if key.hasPrefix("p"), let d = key.split(separator: ":").last.flatMap({ LocalDate(String($0)) }) { return d }
+        guard let id = Int(key.dropFirst()) else { return nil }
+        if key.hasPrefix("e"), let e = store.events().first(where: { $0.id == id }) { return LocalDate(e.start, tz: tz) }
+        if key.hasPrefix("b"), let b = store.studyBlocks(statuses: ["proposed", "planned", "done", "dismissed"]).first(where: { $0.id == id }) {
+            return LocalDate(b.plannedStart, tz: tz)
+        }
+        return nil
+    }
+
+    /// The toolbar path, e.g. Courses › HM210 › Materials.
+    var breadcrumb: [String] {
+        switch route {
+        case .today: return ["Today"]
+        case .inbox(let s): return ["Inbox"] + (s.map { [$0.rawValue.capitalized] } ?? [])
+        case .calendar(let m, _): return ["Calendar", m.title]
+        case .occurrence: return ["Calendar", "Week"]
+        case .assignments: return ["Assignments"]
+        case .assignment(let id): return ["Assignments", store.assignment(id)?.title ?? "Assignment"]
+        case .course(let id, let tab):
+            guard let c = store.course(id) else { return ["Courses"] }
+            return ["Courses", c.displayName, tab.title]
+        case .material(let id): return ["Study", store.material(id)?.title ?? "Material"]
+        case .study(let s): return ["Study", s.title]
+        case .connections(let k): return ["Connections"] + (k.map { [$0.title] } ?? [])
+        case .settings(let s): return ["Settings", s.title]
+        case .review, .activity, .setup: return []
+        }
+    }
 
     // MARK: Import
 
@@ -279,9 +418,7 @@ final class AppModel {
         do {
             try store.replacePlannerProposals(result.blocks)
             refresh()
-            calendarMode = .week
-            calendarDate = LocalDate.today(tz: tz)
-            screen = .calendar
+            go(.calendar(.week, LocalDate.today(tz: tz)))
             let msg = result.blocks.isEmpty ? "Nothing needs planning in the next three weeks." : "Proposed \(result.blocks.count) study block\(result.blocks.count == 1 ? "" : "s"). Accept the ones that work."
             show(([msg] + result.warnings).joined(separator: " "))
         } catch { fail(error) }
@@ -375,9 +512,3 @@ struct ICSPreview: Identifiable {
     var sourceId: Int?
 }
 
-enum CalendarMode: String, CaseIterable, Identifiable { case week, month, agenda; var id: String { rawValue }; var title: String { rawValue.capitalized } }
-enum CourseTab: String, CaseIterable, Identifiable {
-    case overview, materials, concepts, notes, cards
-    var id: String { rawValue }
-    var title: String { self == .notes ? "Sheets & notes" : rawValue.capitalized }
-}

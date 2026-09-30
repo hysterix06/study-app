@@ -42,7 +42,7 @@ struct CoursesScreen: View {
 
     func newCourse() {
         guard let term = model.store.currentTerm() else {
-            model.show("Add a term first in Settings → Terms.", error: true); model.screen = .settings; return
+            model.show("Add a term first in Settings › Terms and breaks.", error: true); model.go(.settings(.terms)); return
         }
         editing = Course(termId: term.id, code: "", name: "", color: model.store.nextCourseColor())
     }
@@ -72,12 +72,47 @@ struct CourseDetail: View {
                 Group {
                     switch model.courseTab {
                     case .overview: CourseOverview(course: course)
+                    case .assignments: CourseAssignments(course: course)
                     case .materials: CourseMaterials(course: course)
                     case .concepts: CourseConcepts(course: course)
                     case .notes: CourseNotes(course: course)
                     case .cards: CourseCards(course: course)
                     }
                 }.padding(24).contentWidth()
+            }
+        }
+    }
+}
+
+// MARK: Assignments
+
+/// The course's assignments, same rows as the Assignments screen; each opens its assignment.
+struct CourseAssignments: View {
+    @Environment(AppModel.self) var model
+    var course: Course
+
+    var body: some View {
+        let _ = model.revision
+        let store = model.store
+        let all = store.assignments(AssignmentFilter(courseId: course.id))
+        let open = all.filter { $0.isOpen }
+        let closed = all.filter { !$0.isOpen }
+        let courses = store.courseMap()
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader(title: "Open")
+                if open.isEmpty { Text("Nothing open for this course.").font(.stBody).foregroundStyle(Theme.secondaryText) }
+                ForEach(open) { a in
+                    Button { model.openAssignment(a.id) } label: { AssignmentLine(a: a, courses: courses) }.buttonStyle(.plain)
+                }
+            }
+            if !closed.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionHeader(title: "Done")
+                    ForEach(closed) { a in
+                        Button { model.openAssignment(a.id) } label: { AssignmentLine(a: a, courses: courses) }.buttonStyle(.plain)
+                    }
+                }
             }
         }
     }
@@ -233,7 +268,7 @@ struct MaterialRow: View {
             if m.processedAt != nil { Chip(text: "Processed", systemImage: "checkmark") }
             Menu {
                 Button("Open file") { if let p = m.storedPath { NSWorkspace.shared.open(model.store.paths.absolute(p)) } }
-                Button("Study this") { model.openStudy(m.id) }
+                Button("Study this") { model.openMaterial(m.id) }
                 Divider()
                 Button(model.claude.findCLI() != nil ? "Process with Claude now" : "Copy \"process lecture\" prompt") { model.process(materialId: m.id) }
                 Button("Copy \"process lecture\" prompt") { model.copyPrompt("process_lecture", ["material_id": "\(m.id)"]) }

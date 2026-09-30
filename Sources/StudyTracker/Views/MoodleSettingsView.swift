@@ -142,7 +142,7 @@ struct MoodleConnectView: View {
                 Text("Found \(Text(p.name).fontWeight(.semibold))").foregroundStyle(Theme.secondaryText)
             }
         case .found(let p):
-            Text("\(p.name) has turned off app access, so Moodle can't connect. You can still get deadlines by adding its calendar link in Settings → Calendars.")
+            Text("\(p.name) has turned off app access, so Moodle can't connect. You can still get deadlines by adding its calendar link in Connections › Calendars.")
                 .foregroundStyle(Theme.accent)
         case .notFound:
             Text("No Moodle found here yet. Copy the address from your browser while you're on Moodle.").foregroundStyle(Theme.secondaryText)
