@@ -222,7 +222,7 @@ public extension StudyStore {
 
     func skippedMaterialIds() -> Set<Int> { Set(JSON.intArray(setting("inbox_skipped_materials"))) }
 
-    private func setSkippedMaterialIds(_ ids: Set<Int>) {
+    func setSkippedMaterialIds(_ ids: Set<Int>) {
         setSetting("inbox_skipped_materials", ids.isEmpty ? nil : JSON.string(ids.sorted()))
     }
 

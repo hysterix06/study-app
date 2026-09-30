@@ -277,7 +277,7 @@ struct MaterialRow: View {
                 Button("Copy \"practice problems\" prompt") { model.copyPrompt("practice_problems", ["material_id": "\(m.id)"]) }
                 Divider()
                 Menu("Role") { ForEach(MaterialRole.allCases) { r in Button(r.label) { model.run { try model.store.updateMaterial(m.id, role: r); return nil } } } }
-                Button("Move to Trash", role: .destructive) { model.run("Moved \(m.title) to the Trash.") { try model.store.deleteMaterial(m.id); return nil } }
+                Button("Delete", role: .destructive) { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }
             } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton).fixedSize()
         }
@@ -400,7 +400,7 @@ struct NoteViewer: View {
             HStack {
                 Text(note.title).font(.stHeading)
                 Spacer()
-                if note.createdBy == "user" { Button("Delete", role: .destructive) { model.run("Deleted note.") { try model.store.deleteNote(note.id); return nil }; dismiss() } }
+                if note.createdBy == "user" { Button("Delete", role: .destructive) { model.run("Deleted note.") { try model.store.trashNote(note.id) }; dismiss() } }
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
             ScrollView {
@@ -507,7 +507,7 @@ struct ProposedCardRow: View {
             HStack {
                 if let l = card.sourceLocators { Text(l).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
                 Spacer()
-                Button("Discard") { model.run { try model.store.deleteCard(card.id); return nil } }.buttonStyle(QuietButtonStyle())
+                Button("Discard") { model.run("Discarded card.") { try model.store.trashCard(card.id) } }.buttonStyle(QuietButtonStyle())
                 Button(front != card.front || back != card.back ? "Save my version" : "Approve") {
                     model.run { try model.store.saveCard(id: card.id, front: front, back: back, status: "active"); return nil }
                 }.buttonStyle(PrimaryButtonStyle())
@@ -552,7 +552,7 @@ struct CourseEditor: View {
                 if course.id != 0 {
                     Button("Delete course", role: .destructive) {
                         let name = course.name
-                        model.run("Deleted \(name).") { try model.store.deleteCourse(course.id); return nil }
+                        model.run("Deleted \(name).") { try model.store.trashCourse(course.id) }
                         model.selectedCourseId = nil
                         dismiss()
                     }

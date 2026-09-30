@@ -26,6 +26,9 @@ public struct Row {
 
     public subscript(_ column: String) -> SQLValue { values[column] ?? .null }
 
+    /// Every column of the row, for generic copies (trash and restore).
+    public var allValues: [String: SQLValue] { values }
+
     public func string(_ c: String) -> String? {
         switch self[c] {
         case .text(let s): return s

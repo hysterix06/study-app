@@ -28,7 +28,12 @@ struct StudyTrackerApp: App {
                     Button("Import Files…") { model.chooseFilesToImport() }.keyboardShortcut("o")
                 }
                 CommandGroup(replacing: .undoRedo) {
-                    Button("Undo") { model.performUndo() }.keyboardShortcut("z").disabled(model.toast?.undo == nil)
+                    // A text field being edited keeps its own undo; otherwise ⌘Z walks back through recent writes.
+                    Button(model.undoStack.last.map { "Undo \($0.label)" } ?? "Undo") {
+                        if NSApp.keyWindow?.firstResponder is NSText { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) }
+                        else { model.performUndo() }
+                    }.keyboardShortcut("z")
+                    Button("Redo") { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }.keyboardShortcut("z", modifiers: [.command, .shift])
                 }
                 CommandMenu("Go") {
                     ForEach(Array(SidebarItem.numbered.enumerated()), id: \.element) { i, s in
@@ -213,7 +218,6 @@ struct ToastHost: View {
                 Text(t.message).font(.stBody).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 if t.undo != nil {
                     Button("Undo") { model.performUndo() }.buttonStyle(.borderless).fontWeight(.semibold)
-                        .keyboardShortcut("z", modifiers: .command)
                 }
                 Button { model.toast = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).foregroundStyle(Theme.secondaryText)
                     .accessibilityLabel("Dismiss")

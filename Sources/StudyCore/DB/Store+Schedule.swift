@@ -1,14 +1,22 @@
 import Foundation
 
-public struct UndoSnapshot {
+public struct UndoSnapshot: Identifiable {
+    public let id = UUID()
     public var label: String
-    fileprivate var patterns: [ClassPattern]
-    fileprivate var exceptionsByPattern: [Int: [ClassException]]
-    fileprivate var insertedPatternIds: [Int]
-    fileprivate var events: [Event]
-    fileprivate var assignments: [Assignment]
-    fileprivate var insertedAssignmentIds: [Int]
-    fileprivate var deletedAssignments: [Assignment]
+    fileprivate var patterns: [ClassPattern] = []
+    fileprivate var exceptionsByPattern: [Int: [ClassException]] = [:]
+    fileprivate var insertedPatternIds: [Int] = []
+    fileprivate var events: [Event] = []
+    fileprivate var assignments: [Assignment] = []
+    fileprivate var insertedAssignmentIds: [Int] = []
+    fileprivate var deletedAssignments: [Assignment] = []
+    /// Recently Deleted entries; undo restores them.
+    public fileprivate(set) var trashIds: [Int] = []
+    /// Several undoable steps that undo together, newest last.
+    fileprivate var parts: [UndoSnapshot] = []
+
+    public static func trash(_ ids: [Int], label: String) -> UndoSnapshot { UndoSnapshot(label: label, trashIds: ids) }
+    public static func composite(_ parts: [UndoSnapshot], label: String) -> UndoSnapshot { UndoSnapshot(label: label, parts: parts) }
 }
 
 public extension StudyStore {
@@ -237,6 +245,8 @@ public extension StudyStore {
     /// Restores exactly the rows captured before an edit.
     func undo(_ s: UndoSnapshot) throws {
         try db.transaction {
+            for part in s.parts.reversed() { try undo(part) }
+            for id in s.trashIds.reversed() { try restoreTrash(id) }
             for id in s.insertedPatternIds { try deletePattern(id) }
             for p in s.patterns {
                 let exists = try db.scalarInt("SELECT count(*) FROM class_patterns WHERE id = ?", [p.id]) > 0

@@ -189,7 +189,7 @@ struct TermEditor: View {
                 Toggle("Current term", isOn: $term.isCurrent)
             }.formStyle(.grouped)
             HStack {
-                if term.id != 0 { Button("Delete", role: .destructive) { model.run("Deleted term.") { try model.store.deleteTerm(term.id); return nil }; dismiss() } }
+                if term.id != 0 { Button("Delete", role: .destructive) { model.run("Deleted \(term.name) and its courses.") { try model.store.trashTerm(term.id) }; dismiss() } }
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
@@ -217,7 +217,7 @@ struct BreaksEditor: View {
                     Text(b.label ?? "Break").font(.stBody)
                     Text("\(b.startDate.string) → \(b.endDate.string)").font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText)
                     Spacer()
-                    Button("Remove") { model.run { try model.store.deleteBreak(b.id); return nil } }.buttonStyle(.borderless).font(.stSmall)
+                    Button("Remove") { model.run("Removed break.") { try model.store.trashRow(kind: "break", table: "term_breaks", id: b.id, label: b.label ?? "break") } }.buttonStyle(.borderless).font(.stSmall)
                 }
             }
             HStack {
@@ -465,11 +465,64 @@ struct AppleSettings: View {
 
 // MARK: Data
 
+/// Deleted courses, terms, files and cards stay here for 30 days (UI remap principle 5).
+struct RecentlyDeletedPanel: View {
+    @Environment(AppModel.self) var model
+
+    var body: some View {
+        let _ = model.revision
+        let items = model.store.trashItems()
+        let tz = model.tz
+        Panel {
+            SectionHeader(title: "Recently Deleted")
+            Text("Deleted items stay here for \(StudyStore.trashRetentionDays) days, then are removed for good.")
+                .font(.stSmall).foregroundStyle(Theme.secondaryText)
+            if items.isEmpty {
+                Text("Nothing deleted recently.").font(.stBody).foregroundStyle(Theme.secondaryText).padding(.vertical, 4)
+            }
+            let days = Dictionary(grouping: items) { LocalDate($0.deletedAt, tz: tz) }
+            ForEach(days.keys.sorted(by: >), id: \.self) { day in
+                Text(Formatters.day(day.at(LocalTime(hour: 12, minute: 0), tz: tz), tz: tz)).font(.stSmallStrong).foregroundStyle(Theme.tertiaryText)
+                    .padding(.top, 4)
+                ForEach(days[day] ?? []) { item in
+                    HStack(spacing: 10) {
+                        Image(systemName: icon(item.kind)).foregroundStyle(Theme.secondaryText).frame(width: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.label).font(.stBody).lineLimit(1)
+                            Text("\(item.kind == "inbox_batch" ? "Inbox" : item.kind.capitalized) · \(Formatters.time(item.deletedAt, tz: tz))")
+                                .font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                        }
+                        Spacer()
+                        Button("Restore") { model.run("Restored \(item.label).") { try model.store.restoreTrash(item.id); return nil } }
+                            .buttonStyle(QuietButtonStyle())
+                        Button("Delete now") { model.run { try model.store.deleteTrashNow(item.id); return nil } }
+                            .buttonStyle(.borderless).font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    func icon(_ kind: String) -> String {
+        switch kind {
+        case "course": return "books.vertical"
+        case "term": return "calendar.badge.clock"
+        case "material": return "doc"
+        case "assignment": return "checklist"
+        case "card": return "rectangle.stack"
+        case "inbox_batch": return "tray"
+        default: return "trash"
+        }
+    }
+}
+
 struct DataSettings: View {
     @Environment(AppModel.self) var model
     var body: some View {
         let paths = model.store.paths
         VStack(alignment: .leading, spacing: 14) {
+            RecentlyDeletedPanel()
             Panel {
                 SectionHeader(title: "Your files")
                 folder("Study Tracker folder", paths.root)

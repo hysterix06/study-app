@@ -108,6 +108,7 @@ final class AppModel {
 
     func housekeeping() {
         store.backupIfOlderThan(hours: 20, reason: "daily")
+        store.purgeTrash()
         Task { await syncFeeds(silent: true) }
         if store.boolSetting("moodle_enabled"), let last = store.setting("moodle_last_sync").flatMap({ ISO.parse($0) }) {
             if Date().timeIntervalSince(last) > 3 * 3600 { Task { await moodle.sync(silent: true) } }
@@ -120,7 +121,15 @@ final class AppModel {
 
     // MARK: Toasts and undo (8 seconds, §5.2)
 
+    /// Undoable writes, newest last. ⌘Z works through them after the toast is gone.
+    private(set) var undoStack: [UndoSnapshot] = []
+    static let undoLimit = 20
+
     func show(_ message: String, undo: UndoSnapshot? = nil, error: Bool = false) {
+        if let undo {
+            undoStack.append(undo)
+            if undoStack.count > Self.undoLimit { undoStack.removeFirst(undoStack.count - Self.undoLimit) }
+        }
         toast = Toast(message: message, undo: undo, isError: error)
         toastTask?.cancel()
         let id = toast!.id
@@ -130,11 +139,15 @@ final class AppModel {
         }
     }
 
+    /// Undoes the toast's action if one is showing, otherwise the most recent undoable write.
     func performUndo() {
-        guard let snap = toast?.undo else { return }
-        do { try store.undo(snap); toast = Toast(message: "Undone."); refresh() }
+        guard let snap = toast?.undo ?? undoStack.last else { return }
+        undoStack.removeAll { $0.id == snap.id }
+        do { try store.undo(snap); toast = Toast(message: "Undone: \(snap.label)."); refresh() }
         catch { show("Could not undo: \(error)", error: true) }
     }
+
+    var canUndo: Bool { !undoStack.isEmpty }
 
     func fail(_ error: Error) { show("\(error)", error: true) }
 

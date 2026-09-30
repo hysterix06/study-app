@@ -5,7 +5,7 @@ import Foundation
 public enum Migrations {
     public static var currentVersion: Int { all.count }
 
-    public static let all: [String] = [v1, v2]
+    public static let all: [String] = [v1, v2, v3]
 
     public static func migrate(_ db: Database) throws {
         let version = db.userVersion
@@ -361,5 +361,19 @@ public enum Migrations {
 
     static let v2 = """
     ALTER TABLE courses ADD COLUMN short_name TEXT;
+    """
+
+    /// Recently Deleted: every delete saves the rows it removes (and the links it clears) so it can be restored exactly.
+    static let v3 = """
+    CREATE TABLE trash (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL,
+      entity_id INTEGER,
+      label TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      deleted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      batch_id TEXT
+    );
+    CREATE INDEX trash_deleted_at ON trash(deleted_at);
     """
 }

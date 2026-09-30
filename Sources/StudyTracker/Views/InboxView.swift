@@ -101,7 +101,7 @@ struct InboxScreen: View {
                                     Text(m.statusDetail ?? m.status).font(.stSmall).foregroundStyle(Theme.secondaryText)
                                 }
                                 Spacer()
-                                Button("Remove") { model.run { try model.store.deleteMaterial(m.id); return nil } }.buttonStyle(QuietButtonStyle())
+                                Button("Remove") { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }.buttonStyle(QuietButtonStyle())
                             }.padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
                         }
                     }
@@ -112,13 +112,9 @@ struct InboxScreen: View {
         .confirmationDialog("Clear the Inbox?", isPresented: $confirmClear) {
             Button("Clear all", role: .destructive) {
                 model.run("Cleared the Inbox.") {
-                    for m in toFile + problems { try model.store.deleteMaterial(m.id) }
-                    for m in ready + otherReady { model.store.skipMaterial(m.id) }
-                    for a in proposed { try model.store.dismissProposed(a.id) }
-                    for b in blocks { try model.store.setBlockStatus(b.id, "dismissed") }
-                    for c in cards { try model.store.deleteCard(c.id) }
-                    for c in conflicts { try model.store.resolveConflict(c.id, acceptIncoming: false) }
-                    return nil
+                    try model.store.clearInbox(deleteMaterials: (toFile + problems).map(\.id), skip: (ready + otherReady).map(\.id),
+                                               dismissAssignments: proposed.map(\.id), dismissBlocks: blocks.map(\.id),
+                                               deleteCards: cards.map(\.id), keepMine: conflicts.map(\.id))
                 }
             }
         } message: {
@@ -130,7 +126,7 @@ struct InboxScreen: View {
     /// Spells out what "Clear all" does to each kind of item, naming only the kinds that are present.
     func clearSummary(files: Int, skipped: Int, proposals: Int, conflicts: Int) -> String {
         var parts: [String] = []
-        if files > 0 { parts.append("\(files) unfiled or unreadable file\(files == 1 ? "" : "s") will move to the Trash.") }
+        if files > 0 { parts.append("\(files) unfiled or unreadable file\(files == 1 ? "" : "s") will move to Recently Deleted.") }
         if skipped > 0 { parts.append("\(skipped) filed item\(skipped == 1 ? "" : "s") will be skipped but stay in \(skipped == 1 ? "its course" : "their courses").") }
         if proposals > 0 { parts.append("\(proposals) proposed deadline\(proposals == 1 ? "" : "s"), study block\(proposals == 1 ? "" : "s") or flashcard\(proposals == 1 ? "" : "s") will be dismissed.") }
         if conflicts > 0 { parts.append("\(conflicts) conflict\(conflicts == 1 ? "" : "s") will keep your version.") }
@@ -168,7 +164,7 @@ struct FileToFileRow: View {
                     Text("Choose course").tag(Int?.none)
                     ForEach(courses) { c in Text(c.displayName).tag(Int?.some(c.id)) }
                 }.labelsHidden().frame(width: 140)
-                Button("Remove") { model.run("Moved \(m.title) to the Trash.") { try model.store.deleteMaterial(m.id); return nil } }.buttonStyle(QuietButtonStyle())
+                Button("Remove") { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }.buttonStyle(QuietButtonStyle())
                 Button("Confirm") {
                     guard let courseId else { return }
                     model.run("Filed \(m.title).") { try model.store.confirmMaterial(m.id, courseId: courseId, role: role); return nil }
@@ -176,7 +172,7 @@ struct FileToFileRow: View {
                 }
                 .buttonStyle(PrimaryButtonStyle()).disabled(courseId == nil).keyboardShortcut(.defaultAction)
             } else {
-                Button("Remove") { model.run { try model.store.deleteMaterial(m.id); return nil } }.buttonStyle(QuietButtonStyle())
+                Button("Remove") { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }.buttonStyle(QuietButtonStyle())
             }
         }
         .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
@@ -199,7 +195,7 @@ struct ReadyRow: View {
                 Text("\(course?.displayName ?? "") · \(m.role.label)").font(.stSmall).foregroundStyle(Theme.tertiaryText)
             }
             Spacer()
-            Button("Skip") { model.run("Skipped \(m.title). It stays in its course.") { model.store.skipMaterial(m.id); return nil } }
+            Button("Skip") { model.run("Skipped \(m.title). It stays in its course.") { try model.store.skipMaterialUndoable(m.id) } }
                 .buttonStyle(QuietButtonStyle()).help("Remove from the Inbox without processing. The file stays in its course.")
             if prompt == "process_lecture" && cli {
                 Button("Copy prompt") { model.copyPrompt(prompt, ["material_id": "\(m.id)"]) }.buttonStyle(QuietButtonStyle())
@@ -231,7 +227,7 @@ struct ProposedAssignmentRow: View {
                 Text("Choose course").tag(Int?.none)
                 ForEach(courses) { c in Text(c.displayName).tag(Int?.some(c.id)) }
             }.labelsHidden().frame(width: 140)
-            Button("Dismiss") { model.run("Dismissed.") { try model.store.dismissProposed(a.id); return nil } }.buttonStyle(QuietButtonStyle())
+            Button("Dismiss") { model.run("Dismissed.") { try model.store.dismissProposedUndoable(a.id) } }.buttonStyle(QuietButtonStyle())
             Button("Confirm") { model.run("Added \(a.title).") { try model.store.confirmProposed(a.id, courseId: courseId); return nil } }
                 .buttonStyle(PrimaryButtonStyle()).disabled(courseId == nil)
         }

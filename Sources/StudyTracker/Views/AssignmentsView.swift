@@ -363,7 +363,7 @@ struct AssignmentDetail: View {
                         Button("Delete", role: .destructive) {
                             let title = assignment.title
                             do {
-                                let snap = try model.store.deleteAssignment(assignment.id)
+                                let snap = try model.store.trashAssignment(assignment.id)
                                 model.selectedAssignmentId = nil
                                 model.refresh()
                                 model.show("Deleted \(title).", undo: snap)
