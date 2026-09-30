@@ -120,13 +120,13 @@ struct WeekView: View {
                 Color.clear.frame(width: gutter, height: 1)
                 ForEach(days, id: \.self) { d in
                     VStack(spacing: 2) {
-                        Text(weekdayName(d)).font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                        Text(weekdayName(d)).font(.stSmall).foregroundStyle(Theme.textTertiary)
                         Text("\(d.day)").font(.system(size: 18, weight: d == today ? .bold : .regular)).monospacedDigit()
-                            .foregroundStyle(d == today ? Theme.accent : .primary)
+                            .foregroundStyle(d == today ? Theme.attention : Theme.textPrimary)
                         let allDay = data.occurrences.filter { $0.allDay && LocalDate($0.start, tz: tz) == d }
                         ForEach(allDay) { o in
                             Text(o.title).font(.stSmall).lineLimit(1).padding(.horizontal, 4).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(RoundedRectangle(cornerRadius: 3).fill(Theme.subtleFill))
+                                .background(RoundedRectangle(cornerRadius: Theme.corner(3)).fill(Theme.fillSubtle))
                         }
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 6)
@@ -169,7 +169,7 @@ struct WeekView: View {
     func grid(colW: CGFloat, today: LocalDate) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<24, id: \.self) { h in
-                Text(String(format: "%02d:00", h)).font(.system(size: 10)).monospacedDigit().foregroundStyle(Theme.tertiaryText)
+                Text(String(format: "%02d:00", h)).font(.system(size: 10)).monospacedDigit().foregroundStyle(Theme.textTertiary)
                     .frame(width: gutter - 8, alignment: .trailing).offset(x: 0, y: CGFloat(h) * hourHeight - 6)
                 Rectangle().fill(Theme.hairline).frame(height: 1).offset(x: gutter, y: CGFloat(h) * hourHeight)
             }
@@ -178,7 +178,7 @@ struct WeekView: View {
             }
             // Study window shading.
             let ps = model.store.plannerSettings
-            Rectangle().fill(Color.primary.opacity(0.018)).frame(height: CGFloat(ps.windowStart.minutes) / 60 * hourHeight).offset(x: gutter)
+            Rectangle().fill(Theme.textPrimary.opacity(0.018)).frame(height: CGFloat(ps.windowStart.minutes) / 60 * hourHeight).offset(x: gutter)
         }
     }
 
@@ -261,8 +261,8 @@ struct WeekView: View {
         }
         if d == today {
             let ny = y(Date(), on: d)
-            Rectangle().fill(Theme.accent).frame(width: colW, height: 1.5).offset(x: x0, y: ny)
-            Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: x0 - 3.5, y: ny - 3)
+            Rectangle().fill(Theme.attention).frame(width: colW, height: 1.5).offset(x: x0, y: ny)
+            Circle().fill(Theme.attention).frame(width: 7, height: 7).offset(x: x0 - 3.5, y: ny - 3)
         }
     }
 
@@ -293,9 +293,9 @@ struct OccurrenceBlock: View {
     var body: some View {
         let canceled = occ.status == .canceled
         let busy = occ.kind == "busy"
-        let color = busy ? Color.gray : Theme.courseColor(course?.color)
+        let color = busy ? Theme.textTertiary : Theme.course(course?.color)
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 5).fill(busy ? Color.primary.opacity(0.05) : color.opacity(0.16))
+            RoundedRectangle(cornerRadius: Theme.corner(5)).fill(busy ? Theme.textPrimary.opacity(0.05) : color.opacity(0.16))
             Rectangle().fill(color.opacity(busy ? 0.35 : 0.9)).frame(width: 3)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 3) {
@@ -303,9 +303,9 @@ struct OccurrenceBlock: View {
                     if occ.status == .modified { Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 8)).accessibilityLabel("Changed") }
                 }
                 if height > 30 {
-                    Text(timeText).font(.system(size: 10)).monospacedDigit().foregroundStyle(Theme.secondaryText)
+                    Text(timeText).font(.system(size: 10)).monospacedDigit().foregroundStyle(Theme.textSecondary)
                 }
-                if height > 46, let loc = occ.location { Text(loc).font(.system(size: 10)).foregroundStyle(Theme.secondaryText).lineLimit(1) }
+                if height > 46, let loc = occ.location { Text(loc).font(.system(size: 10)).foregroundStyle(Theme.textSecondary).lineLimit(1) }
             }
             .strikethrough(canceled)
             .padding(.leading, 6).padding(.top, 3)
@@ -360,10 +360,10 @@ struct OccurrencePopover: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(occ.title).font(.stBodyStrong)
             Text("\(Formatters.day(occ.start, tz: model.tz)), \(Formatters.time(occ.start, tz: model.tz))–\(Formatters.time(occ.end, tz: model.tz))")
-                .font(.stBody).foregroundStyle(Theme.secondaryText).monospacedDigit()
+                .font(.stBody).foregroundStyle(Theme.textSecondary).monospacedDigit()
             if let loc = occ.location { Label(loc, systemImage: "mappin.and.ellipse").font(.stBody) }
             if occ.status == .canceled { Chip(text: "Canceled") }
-            if let note = occ.note { Text(note).font(.stSmall).foregroundStyle(Theme.secondaryText) }
+            if let note = occ.note { Text(note).font(.stSmall).foregroundStyle(Theme.textSecondary) }
             if editing {
                 Form {
                     DatePicker("Date", selection: $date, displayedComponents: .date)
@@ -434,7 +434,7 @@ struct ScopeDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Change \(edit.occurrence.title)").font(.stHeading)
-            Text(describe(edit.change)).font(.stBody).foregroundStyle(Theme.secondaryText)
+            Text(describe(edit.change)).font(.stBody).foregroundStyle(Theme.textSecondary)
             Picker("Apply to", selection: $scope) {
                 ForEach(EditScope.allCases) { s in Text(s.label).tag(s) }
             }
@@ -471,25 +471,25 @@ struct StudyBlockView: View {
 
     var body: some View {
         let proposed = block.status == "proposed"
-        let color = Theme.courseColor(course?.color)
+        let color = Theme.course(course?.color)
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 5)
-                .fill(proposed ? Color.clear : color.opacity(block.status == "done" ? 0.08 : 0.12))
-            RoundedRectangle(cornerRadius: 5)
+            RoundedRectangle(cornerRadius: Theme.corner(5))
+                .fill(proposed ? Theme.clear : color.opacity(block.status == "done" ? 0.08 : 0.12))
+            RoundedRectangle(cornerRadius: Theme.corner(5))
                 .strokeBorder(color.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: proposed ? [4, 3] : []))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 3) {
                     Image(systemName: block.status == "done" ? "checkmark" : "book").font(.system(size: 9))
                     Text(block.focus ?? "Study").font(.system(size: 11, weight: .medium)).lineLimit(2)
                 }
-                Text(proposed ? "Proposed · \(block.plannedMinutes) min" : "\(block.plannedMinutes) min").font(.system(size: 10)).foregroundStyle(Theme.secondaryText)
+                Text(proposed ? "Proposed · \(block.plannedMinutes) min" : "\(block.plannedMinutes) min").font(.system(size: 10)).foregroundStyle(Theme.textSecondary)
             }.padding(4)
         }
         .onTapGesture { show = true }
         .popover(isPresented: $show) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(block.focus ?? "Study block").font(.stBodyStrong)
-                Text("\(Formatters.dayTime(block.plannedStart, tz: model.tz)) · \(block.plannedMinutes) min").font(.stBody).foregroundStyle(Theme.secondaryText)
+                Text("\(Formatters.dayTime(block.plannedStart, tz: model.tz)) · \(block.plannedMinutes) min").font(.stBody).foregroundStyle(Theme.textSecondary)
                 if block.createdBy == "claude" { Chip(text: "Proposed by Claude") }
                 HStack {
                     if proposed {
@@ -525,9 +525,9 @@ struct DeadlineMarker: View {
             }
             .padding(.horizontal, 5).frame(height: exam ? 20 : 15)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .foregroundStyle(urgent ? Theme.accent : .primary)
-            .background(RoundedRectangle(cornerRadius: 4).fill(.background))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(urgent ? Theme.accent.opacity(0.6) : Theme.courseColor(course?.color).opacity(0.7)))
+            .foregroundStyle(urgent ? Theme.attention : Theme.textPrimary)
+            .background(RoundedRectangle(cornerRadius: Theme.corner(4)).fill(.background))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner(4)).strokeBorder(urgent ? Theme.attention.opacity(0.6) : Theme.course(course?.color).opacity(0.7)))
             .opacity(a.isOpen ? 1 : 0.5)
         }
         .buttonStyle(.plain)
@@ -548,7 +548,7 @@ struct SlotQuickAdd: View {
         let tz = model.tz
         let start = slot.date.at(slot.time, tz: tz)
         VStack(alignment: .leading, spacing: 10) {
-            Text(Formatters.dayTime(start, tz: tz)).font(.stSmall).foregroundStyle(Theme.secondaryText)
+            Text(Formatters.dayTime(start, tz: tz)).font(.stSmall).foregroundStyle(Theme.textSecondary)
             Picker("", selection: $asEvent) { Text("Assignment due").tag(false); Text("Event").tag(true) }.pickerStyle(.segmented).labelsHidden()
             TextField(asEvent ? "Event title" : "What's due?", text: $text).textFieldStyle(.roundedBorder).onSubmit(save)
             Picker("Course", selection: $courseId) {
@@ -595,7 +595,7 @@ struct MonthView: View {
             ForEach(0..<7, id: \.self) { i in
                 let d = first.adding(days: i)
                 Text(Formatters.weekdayShort(d.at(LocalTime(hour: 12, minute: 0), tz: tz), tz: tz))
-                    .font(.stSmall).foregroundStyle(Theme.tertiaryText).frame(maxWidth: .infinity).padding(.vertical, 6)
+                    .font(.stSmall).foregroundStyle(Theme.textTertiary).frame(maxWidth: .infinity).padding(.vertical, 6)
             }
         }
         GeometryReader { geo in
@@ -606,7 +606,7 @@ struct MonthView: View {
                     let dl = data.deadlines.filter { $0.dueAt.map { LocalDate($0, tz: tz) == d } ?? false }
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(d.day)").font(.system(size: 12, weight: d == today ? .bold : .regular)).monospacedDigit()
-                            .foregroundStyle(d == today ? Theme.accent : (d.month == month.month ? .primary : Theme.tertiaryText))
+                            .foregroundStyle(d == today ? Theme.attention : (d.month == month.month ? Theme.textPrimary : Theme.textTertiary))
                         ForEach(dl.prefix(2)) { a in
                             HStack(spacing: 3) {
                                 Image(systemName: a.kind == .exam ? "exclamationmark.square.fill" : "flag.fill").font(.system(size: 8))
@@ -621,7 +621,7 @@ struct MonthView: View {
                             }
                         }
                         let more = occ.count + dl.count - 3
-                        if more > 0 { Text("+\(more) more").font(.system(size: 10)).foregroundStyle(Theme.tertiaryText) }
+                        if more > 0 { Text("+\(more) more").font(.system(size: 10)).foregroundStyle(Theme.textTertiary) }
                         Spacer(minLength: 0)
                     }
                     .padding(4)
@@ -660,17 +660,17 @@ struct AgendaView: View {
                             ForEach(occ) { o in
                                 HStack(spacing: 10) {
                                     Text(o.allDay ? "All day" : "\(Formatters.time(o.start, tz: tz))–\(Formatters.time(o.end, tz: tz))")
-                                        .font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText).frame(width: 96, alignment: .leading)
+                                        .font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary).frame(width: 96, alignment: .leading)
                                     CourseDot(color: o.courseId.flatMap { data.courses[$0]?.color })
                                     Text(o.title).font(.stBody).strikethrough(o.status == .canceled)
-                                        .foregroundStyle(o.kind == "busy" || o.status == .canceled ? Theme.secondaryText : .primary)
-                                    if let l = o.location { Text(l).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                                        .foregroundStyle(o.kind == "busy" || o.status == .canceled ? Theme.textSecondary : Theme.textPrimary)
+                                    if let l = o.location { Text(l).font(.stSmall).foregroundStyle(Theme.textTertiary) }
                                     if o.status == .modified { Chip(text: "changed") }
                                 }
                             }
                             ForEach(bl) { b in
                                 HStack(spacing: 10) {
-                                    Text(Formatters.time(b.plannedStart, tz: tz)).font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText).frame(width: 96, alignment: .leading)
+                                    Text(Formatters.time(b.plannedStart, tz: tz)).font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary).frame(width: 96, alignment: .leading)
                                     Image(systemName: "book").font(.stSmall)
                                     Text("\(b.focus ?? "Study") · \(b.plannedMinutes) min").font(.stBody)
                                     if b.status == "proposed" { Chip(text: "proposed") }

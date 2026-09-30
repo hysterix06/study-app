@@ -58,7 +58,7 @@ struct CommandPalette: View {
         let list = filtered
         VStack(spacing: 0) {
             HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(Theme.tertiaryText)
+                Image(systemName: "magnifyingglass").foregroundStyle(Theme.textTertiary)
                 TextField("Jump to a course, assignment or action", text: $query).textFieldStyle(.plain).font(.stBodyStrong)
                     .focused($focused)
                     .onSubmit { if list.indices.contains(selection) { execute(list[selection]) } }
@@ -69,13 +69,13 @@ struct CommandPalette: View {
                 VStack(spacing: 2) {
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, item in
                         HStack(spacing: 10) {
-                            Image(systemName: item.icon).frame(width: 18).foregroundStyle(Theme.secondaryText)
+                            Image(systemName: item.icon).frame(width: 18).foregroundStyle(Theme.textSecondary)
                             Text(item.title).font(.stBody).lineLimit(1)
                             Spacer()
-                            Text(item.subtitle).font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                            Text(item.subtitle).font(.stSmall).foregroundStyle(Theme.textTertiary)
                         }
                         .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(i == selection ? Color.primary.opacity(0.08) : .clear))
+                        .background(RoundedRectangle(cornerRadius: Theme.corner(6)).fill(i == selection ? Theme.textPrimary.opacity(0.08) : Theme.clear))
                         .contentShape(Rectangle())
                         .onTapGesture { execute(item) }
                     }
@@ -105,26 +105,26 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 10) {
             if let n = snap.nextClass {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("NEXT CLASS").font(.stSmallStrong).foregroundStyle(Theme.tertiaryText)
+                    Text("NEXT CLASS").font(.stSmallStrong).foregroundStyle(Theme.textTertiary)
                     HStack(spacing: 6) { CourseDot(color: n.courseId.flatMap { courses[$0]?.color }); Text(n.title).font(.stBodyStrong).lineLimit(1) }
-                    Text("\(Formatters.time(n.start, tz: tz)) · \(n.location ?? "") · \(RelativeTime.describe(n.start))").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    Text("\(Formatters.time(n.start, tz: tz)) · \(n.location ?? "") · \(RelativeTime.describe(n.start))").font(.stSmall).foregroundStyle(Theme.textSecondary)
                 }
                 Divider()
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("SUGGESTED").font(.stSmallStrong).foregroundStyle(Theme.tertiaryText)
+                Text("SUGGESTED").font(.stSmallStrong).foregroundStyle(Theme.textTertiary)
                 Text(snap.suggested.title).font(.stBody).fixedSize(horizontal: false, vertical: true)
             }
             if !snap.dueSoon.isEmpty {
                 Divider()
-                Text("DUE SOON").font(.stSmallStrong).foregroundStyle(Theme.tertiaryText)
+                Text("DUE SOON").font(.stSmallStrong).foregroundStyle(Theme.textTertiary)
                 ForEach(snap.dueSoon.prefix(4)) { a in
                     HStack(spacing: 6) {
                         CourseDot(color: a.courseId.flatMap { courses[$0]?.color })
                         Text(a.title).font(.stSmall).lineLimit(1)
                         Spacer()
                         Text(a.dueAt.map { RelativeTime.describe($0) } ?? "").font(.stSmall).monospacedDigit()
-                            .foregroundStyle(a.isOverdue(now: Date()) ? Theme.accent : Theme.secondaryText)
+                            .foregroundStyle(a.isOverdue(now: Date()) ? Theme.attention : Theme.textSecondary)
                     }
                 }
             }

@@ -21,7 +21,7 @@ struct CoursesScreen: View {
                             CourseDot(color: c.color)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(c.displayName).font(.stBodyStrong)
-                                if let sub = c.secondaryName { Text(sub).font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(1) }
+                                if let sub = c.secondaryName { Text(sub).font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(1) }
                             }
                         }
                         .opacity(c.archived ? 0.5 : 1)
@@ -59,12 +59,12 @@ struct CourseDetail: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 CourseDot(color: course.color, size: 12)
                 Text(course.name).font(.stTitle)
-                if let code = course.code { Text(code).font(.stHeading).foregroundStyle(Theme.tertiaryText) }
+                if let code = course.code { Text(code).font(.stHeading).foregroundStyle(Theme.textTertiary) }
                 Spacer()
                 Button("Edit") { onEdit() }.buttonStyle(QuietButtonStyle())
             }
             .padding(.horizontal, 24).padding(.top, 20)
-            if let i = course.instructor { Text(i).font(.stBody).foregroundStyle(Theme.secondaryText).padding(.horizontal, 24) }
+            if let i = course.instructor { Text(i).font(.stBody).foregroundStyle(Theme.textSecondary).padding(.horizontal, 24) }
             Picker("", selection: $model.courseTab) { ForEach(CourseTab.allCases) { Text($0.title).tag($0) } }
                 .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 620)
             Divider()
@@ -101,7 +101,7 @@ struct CourseAssignments: View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 6) {
                 SectionHeader(title: "Open")
-                if open.isEmpty { Text("Nothing open for this course.").font(.stBody).foregroundStyle(Theme.secondaryText) }
+                if open.isEmpty { Text("Nothing open for this course.").font(.stBody).foregroundStyle(Theme.textSecondary) }
                 ForEach(open) { a in
                     Button { model.openAssignment(a.id) } label: { AssignmentLine(a: a, courses: courses) }.buttonStyle(.plain)
                 }
@@ -134,22 +134,22 @@ struct CourseOverview: View {
             VStack(alignment: .leading, spacing: 6) {
                 SectionHeader(title: "Weekly schedule", trailing: AnyView(Button("Add class time") { addingPattern = true }.buttonStyle(.borderless).font(.stSmall)))
                 let patterns = store.patterns(courseId: course.id)
-                if patterns.isEmpty { Text("No weekly classes yet.").font(.stBody).foregroundStyle(Theme.secondaryText) }
+                if patterns.isEmpty { Text("No weekly classes yet.").font(.stBody).foregroundStyle(Theme.textSecondary) }
                 ForEach(patterns) { p in
                     HStack {
                         Text(weekdayName(p.weekday)).frame(width: 90, alignment: .leading)
                         Text("\(p.startTime.string)–\(p.endTime.string)").monospacedDigit()
-                        if let l = p.location { Text(l).foregroundStyle(Theme.secondaryText) }
+                        if let l = p.location { Text(l).foregroundStyle(Theme.textSecondary) }
                         Spacer()
-                        Text("\(p.validFrom.string) → \(p.validTo.string)").font(.stSmall).foregroundStyle(Theme.tertiaryText).monospacedDigit()
+                        Text("\(p.validFrom.string) → \(p.validTo.string)").font(.stSmall).foregroundStyle(Theme.textTertiary).monospacedDigit()
                         Button("Edit") { editPattern = p }.buttonStyle(.borderless).font(.stSmall)
-                    }.font(.stBody).padding(8).background(RoundedRectangle(cornerRadius: 6).fill(Theme.subtleFill))
+                    }.font(.stBody).padding(8).background(RoundedRectangle(cornerRadius: Theme.corner(6)).fill(Theme.fillSubtle))
                 }
             }
             VStack(alignment: .leading, spacing: 6) {
                 SectionHeader(title: "Upcoming")
                 let upcoming = store.assignments(AssignmentFilter(courseId: course.id)).filter { $0.isOpen }.prefix(7)
-                if upcoming.isEmpty { Text("Nothing open for this course.").font(.stBody).foregroundStyle(Theme.secondaryText) }
+                if upcoming.isEmpty { Text("Nothing open for this course.").font(.stBody).foregroundStyle(Theme.textSecondary) }
                 ForEach(Array(upcoming)) { a in AssignmentLine(a: a, courses: store.courseMap()).onTapGesture { model.openAssignment(a.id) } }
             }
             let weak = store.weakConcepts(courseId: course.id)
@@ -157,7 +157,7 @@ struct CourseOverview: View {
                 VStack(alignment: .leading, spacing: 6) {
                     SectionHeader(title: "Concepts flagged weak recently")
                     ForEach(weak.prefix(6), id: \.concept.id) { w in
-                        HStack { Text(w.concept.name).font(.stBody); Spacer(); Text("\(w.count)×").font(.stSmall).foregroundStyle(Theme.secondaryText) }
+                        HStack { Text(w.concept.name).font(.stBody); Spacer(); Text("\(w.count)×").font(.stSmall).foregroundStyle(Theme.textSecondary) }
                     }
                 }
             }
@@ -182,20 +182,20 @@ struct GradeCard: View {
             SectionHeader(title: "Grade")
             switch result {
             case .failure(let error):
-                Text(String(describing: error)).font(.stSmall).foregroundStyle(Theme.accent)
+                Text(String(describing: error)).font(.stSmall).foregroundStyle(Theme.attention)
             case .success(let s):
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
                     Text(s.currentOnScale.map { course.gradeScale.format($0) } ?? "—").font(.stTitle).monospacedDigit()
-                    if let t = course.targetGrade { Text("Target \(course.gradeScale.format(t))").font(.stBody).foregroundStyle(Theme.secondaryText) }
+                    if let t = course.targetGrade { Text("Target \(course.gradeScale.format(t))").font(.stBody).foregroundStyle(Theme.textSecondary) }
                     Spacer()
                 }
                 Text(s.headline).font(.stBodyStrong)
-                    .foregroundStyle(s.state == .unreachable || s.state == .componentFailed ? Theme.accent : .primary)
+                    .foregroundStyle(s.state == .unreachable || s.state == .componentFailed ? Theme.attention : Theme.textPrimary)
                 if s.totalWeight > 0 {
                     GeometryReader { g in
                         ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 3).fill(Theme.subtleFill)
-                            RoundedRectangle(cornerRadius: 3).fill(Theme.courseColor(course.color))
+                            RoundedRectangle(cornerRadius: Theme.corner(3)).fill(Theme.fillSubtle)
+                            RoundedRectangle(cornerRadius: Theme.corner(3)).fill(Theme.course(course.color))
                                 .frame(width: g.size.width * min(1, s.earned / max(s.totalWeight, 1)))
                             if let t = s.targetPercent {
                                 Rectangle().fill(Color.primary).frame(width: 2).offset(x: g.size.width * min(1, t / 100))
@@ -206,15 +206,15 @@ struct GradeCard: View {
                     .accessibilityLabel("Earned \(Int(s.earned)) of \(Int(s.totalWeight)) points")
                     if s.gradedWeight > 0 {
                     Text("Earned \(String(format: "%.1f", s.earned)) of \(String(format: "%g", s.gradedWeight)) graded points · \(String(format: "%g", s.remainingWeight)) points still open")
-                        .font(.stSmall).foregroundStyle(Theme.secondaryText).monospacedDigit()
+                        .font(.stSmall).foregroundStyle(Theme.textSecondary).monospacedDigit()
                     }
                 }
-                if let w = s.weightWarning { Label(w, systemImage: "info.circle").font(.stSmall).foregroundStyle(Theme.secondaryText) }
+                if let w = s.weightWarning { Label(w, systemImage: "info.circle").font(.stSmall).foregroundStyle(Theme.textSecondary) }
                 ForEach(s.pendingMinimums, id: \.id) { p in
                     Label("\(p.title) needs at least \(Formatters.percent(p.minPct)) to pass.", systemImage: "exclamationmark.circle").font(.stSmall)
                 }
                 if course.targetGrade == nil {
-                    Text("Set a target grade with Edit to see what you need on the remaining work.").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                    Text("Set a target grade with Edit to see what you need on the remaining work.").font(.stSmall).foregroundStyle(Theme.textTertiary)
                 }
             }
         }
@@ -253,7 +253,7 @@ struct MaterialRow: View {
         let chunks = model.store.chunks(materialId: m.id)
         let pictures = chunks.filter { !$0.images.isEmpty }.count
         HStack(spacing: 10) {
-            Image(systemName: icon).frame(width: 18).foregroundStyle(Theme.secondaryText)
+            Image(systemName: icon).frame(width: 18).foregroundStyle(Theme.textSecondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(m.title).font(.stBody).lineLimit(1)
                 HStack(spacing: 6) {
@@ -261,8 +261,8 @@ struct MaterialRow: View {
                     Text("·"); Text("\(chunks.count) \(m.kind == "slides" ? "slides" : "parts")")
                     if pictures > 0 { Text("·"); Text("\(pictures) with pictures") }
                     if m.processedAt != nil { Text("·"); Text("\(concepts) concepts") }
-                    if m.status == "failed" || m.status == "needs_ocr" { Text("·"); Text(m.statusDetail ?? m.status).foregroundStyle(Theme.accent) }
-                }.font(.stSmall).foregroundStyle(Theme.tertiaryText).lineLimit(1)
+                    if m.status == "failed" || m.status == "needs_ocr" { Text("·"); Text(m.statusDetail ?? m.status).foregroundStyle(Theme.attention) }
+                }.font(.stSmall).foregroundStyle(Theme.textTertiary).lineLimit(1)
             }
             Spacer()
             if m.processedAt != nil { Chip(text: "Processed", systemImage: "checkmark") }
@@ -281,7 +281,7 @@ struct MaterialRow: View {
             } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton).fixedSize()
         }
-        .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+        .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
     }
     var icon: String {
         switch m.kind { case "slides": return "rectangle.on.rectangle"; case "pdf": return "doc.richtext"; case "doc": return "doc.text"; case "image": return "photo"; default: return "text.alignleft" }
@@ -312,7 +312,7 @@ struct CourseConcepts: View {
             ForEach([1, 2, 3], id: \.self) { imp in
                 let group = concepts.filter { $0.importance == imp }
                 if !group.isEmpty {
-                    Text(["Core", "Supporting", "Detail"][imp - 1]).font(.stSmallStrong).foregroundStyle(Theme.tertiaryText)
+                    Text(["Core", "Supporting", "Detail"][imp - 1]).font(.stSmallStrong).foregroundStyle(Theme.textTertiary)
                     ForEach(group) { c in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
@@ -322,20 +322,20 @@ struct CourseConcepts: View {
                                 Button { model.copyPrompt("feynman_check", ["concept_id": "\(c.id)"]) } label: { Label("Explain it", systemImage: "person.wave.2") }
                                     .buttonStyle(.borderless).font(.stSmall).help("Copy a Feynman-check prompt")
                             }
-                            Text(c.definition).font(.stBody).foregroundStyle(Theme.secondaryText)
+                            Text(c.definition).font(.stBody).foregroundStyle(Theme.textSecondary)
                             let src = model.store.conceptSources(c.id)
                             if !src.isEmpty {
                                 let grouped = Dictionary(grouping: src, by: \.materialTitle).sorted { $0.key < $1.key }
                                 Text(grouped.map { "\($0.key): " + $0.value.map(\.locator).joined(separator: ", ") }.joined(separator: " · "))
-                                    .font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                                    .font(.stSmall).foregroundStyle(Theme.textTertiary)
                             }
                             let out = links.filter { $0.from == c.id }
                             if !out.isEmpty {
                                 Text(out.compactMap { l in names[l.to].map { "\(l.relation.replacingOccurrences(of: "_", with: " ")) → \($0)" } }.joined(separator: "   "))
-                                    .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
                             }
                         }
-                        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+                        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
                     }
                 }
             }
@@ -370,11 +370,11 @@ struct CourseNotes: View {
             if notes.isEmpty { EmptyState(text: "Cornell sheets, gap reports and rubric checks from Claude appear here.") }
             ForEach(notes) { n in
                 HStack(spacing: 10) {
-                    Image(systemName: n.kind == "cornell_sheet" ? "square.split.2x1" : "doc.plaintext").foregroundStyle(Theme.secondaryText)
+                    Image(systemName: n.kind == "cornell_sheet" ? "square.split.2x1" : "doc.plaintext").foregroundStyle(Theme.textSecondary)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(n.title).font(.stBody)
                         Text("\(n.kind.replacingOccurrences(of: "_", with: " ").capitalizedFirst) · \(n.createdBy == "claude" ? "Claude" : "You") · \(Formatters.day(n.updatedAt, tz: model.tz))")
-                            .font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                            .font(.stSmall).foregroundStyle(Theme.textTertiary)
                     }
                     Spacer()
                     if n.kind == "cornell_sheet" {
@@ -383,7 +383,7 @@ struct CourseNotes: View {
                     }
                     Button("Open") { open = n }.buttonStyle(QuietButtonStyle())
                 }
-                .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+                .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
             }
         }
         .sheet(item: $open) { n in NoteViewer(note: n) }
@@ -419,7 +419,7 @@ struct NoteComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField("Title", text: $title).textFieldStyle(.roundedBorder)
-            TextEditor(text: $content).font(.stBody).frame(minHeight: 260).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.hairline))
+            TextEditor(text: $content).font(.stBody).frame(minHeight: 260).overlay(RoundedRectangle(cornerRadius: Theme.corner(6)).strokeBorder(Theme.hairline))
             HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Save") {
                 model.run("Saved note.") { _ = try model.store.saveUserNote(courseId: courseId, materialId: nil, title: title, content: content); return nil }
                 dismiss()
@@ -477,8 +477,8 @@ struct CourseCards: View {
                     HStack {
                         Text(c.front).font(.stBody).lineLimit(1)
                         Spacer()
-                        Text(CardState(rawValue: c.state)?.label ?? "").font(.stSmall).foregroundStyle(Theme.tertiaryText)
-                        Text(c.due <= Date() ? "due" : RelativeTime.describe(c.due)).font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText)
+                        Text(CardState(rawValue: c.state)?.label ?? "").font(.stSmall).foregroundStyle(Theme.textTertiary)
+                        Text(c.due <= Date() ? "due" : RelativeTime.describe(c.due)).font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary)
                         Button("Suspend") { model.run { try model.store.saveCard(id: c.id, front: c.front, back: c.back, status: "suspended"); return nil } }
                             .buttonStyle(.borderless).font(.stSmall)
                     }
@@ -487,7 +487,7 @@ struct CourseCards: View {
             if !suspended.isEmpty {
                 SectionHeader(title: "Suspended")
                 ForEach(suspended) { c in
-                    HStack { Text(c.front).font(.stBody).lineLimit(1).foregroundStyle(Theme.secondaryText); Spacer()
+                    HStack { Text(c.front).font(.stBody).lineLimit(1).foregroundStyle(Theme.textSecondary); Spacer()
                         Button("Restore") { model.run { try model.store.saveCard(id: c.id, front: c.front, back: c.back, status: "active"); return nil } }.buttonStyle(.borderless).font(.stSmall) }
                 }
             }
@@ -505,7 +505,7 @@ struct ProposedCardRow: View {
             TextField("Front", text: $front, axis: .vertical).textFieldStyle(.roundedBorder)
             TextField("Back", text: $back, axis: .vertical).textFieldStyle(.roundedBorder)
             HStack {
-                if let l = card.sourceLocators { Text(l).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                if let l = card.sourceLocators { Text(l).font(.stSmall).foregroundStyle(Theme.textTertiary) }
                 Spacer()
                 Button("Discard") { model.run("Discarded card.") { try model.store.trashCard(card.id) } }.buttonStyle(QuietButtonStyle())
                 Button(front != card.front || back != card.back ? "Save my version" : "Approve") {
@@ -513,7 +513,7 @@ struct ProposedCardRow: View {
                 }.buttonStyle(PrimaryButtonStyle())
             }
         }
-        .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+        .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
         .onAppear { front = card.front; back = card.back }
     }
 }

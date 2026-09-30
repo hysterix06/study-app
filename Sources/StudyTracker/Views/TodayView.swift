@@ -15,7 +15,7 @@ struct TodayView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Formatters.longDay(ctx.date, tz: tz)).font(.stTitle)
-                        Text(greeting(ctx.date)).font(.stBody).foregroundStyle(Theme.secondaryText)
+                        Text(greeting(ctx.date)).font(.stBody).foregroundStyle(Theme.textSecondary)
                     }
 
                     if store.courses().isEmpty {
@@ -29,8 +29,8 @@ struct TodayView: View {
                                     Image(systemName: "arrow.uturn.right.circle")
                                     Text("Continue: \(sessionLabel(s))").font(.stBody)
                                     Spacer()
-                                    Text(RelativeTime.describe(s.startedAt, now: ctx.date)).font(.stSmall).foregroundStyle(Theme.tertiaryText)
-                                }.padding(12).background(RoundedRectangle(cornerRadius: 8).fill(Theme.subtleFill))
+                                    Text(RelativeTime.describe(s.startedAt, now: ctx.date)).font(.stSmall).foregroundStyle(Theme.textTertiary)
+                                }.padding(12).background(RoundedRectangle(cornerRadius: Theme.corner(8)).fill(Theme.fillSubtle))
                             }.buttonStyle(.plain)
                         }
 
@@ -48,11 +48,11 @@ struct TodayView: View {
                                 ForEach(snap.today) { o in
                                     HStack(spacing: 10) {
                                         Text(o.allDay ? "All day" : "\(Formatters.time(o.start, tz: tz))–\(Formatters.time(o.end, tz: tz))")
-                                            .font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText).frame(width: 96, alignment: .leading)
+                                            .font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary).frame(width: 96, alignment: .leading)
                                         CourseDot(color: o.courseId.flatMap { courses[$0]?.color })
                                         Text(o.title).font(.stBody).strikethrough(o.status == .canceled)
-                                            .foregroundStyle(o.status == .canceled ? Theme.tertiaryText : .primary)
-                                        if let loc = o.location { Text(loc).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                                            .foregroundStyle(o.status == .canceled ? Theme.textTertiary : Theme.textPrimary)
+                                        if let loc = o.location { Text(loc).font(.stSmall).foregroundStyle(Theme.textTertiary) }
                                         if o.status == .modified { Chip(text: "changed") }
                                         Spacer()
                                     }
@@ -97,8 +97,8 @@ struct SuggestedActionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                if urgent { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.accent).accessibilityLabel("Needs attention") }
-                Text("Suggested").font(.stSmallStrong).foregroundStyle(urgent ? Theme.accent : Theme.tertiaryText).textCase(.uppercase)
+                if urgent { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.attention).accessibilityLabel("Needs attention") }
+                Text("Suggested").font(.stSmallStrong).foregroundStyle(urgent ? Theme.attention : Theme.textTertiary).textCase(.uppercase)
             }
             if action.kind == .nothing {
                 Text(action.title).font(.stHeading)
@@ -112,13 +112,13 @@ struct SuggestedActionCard: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                if let d = action.detail { Text(d).font(.stSmall).foregroundStyle(Theme.secondaryText) }
+                if let d = action.detail { Text(d).font(.stSmall).foregroundStyle(Theme.textSecondary) }
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(urgent ? Theme.accent.opacity(0.5) : Theme.hairline))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(12)).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner(12)).strokeBorder(urgent ? Theme.attention.opacity(0.5) : Theme.hairline))
     }
 
     func perform() {
@@ -155,13 +155,13 @@ struct NextClassCard: View {
                 HStack(spacing: 12) {
                     Label("\(Formatters.day(n.start, tz: model.tz)), \(Formatters.time(n.start, tz: model.tz))–\(Formatters.time(n.end, tz: model.tz))", systemImage: "clock")
                     if let loc = n.location { Label(loc, systemImage: "mappin.and.ellipse") }
-                }.font(.stBody).foregroundStyle(Theme.secondaryText).monospacedDigit()
+                }.font(.stBody).foregroundStyle(Theme.textSecondary).monospacedDigit()
                 let soon = n.start.timeIntervalSince(now) < 3600 && n.start > now
                 Text(n.start <= now ? "Happening now" : RelativeTime.describe(n.start, now: now).capitalizedFirst)
-                    .font(.stBodyStrong).monospacedDigit().foregroundStyle(soon ? Theme.accent : .primary)
+                    .font(.stBodyStrong).monospacedDigit().foregroundStyle(soon ? Theme.attention : Theme.textPrimary)
                 if n.status == .modified { Chip(text: "Changed from the usual time or room") }
             } else {
-                Text("No classes in the next two weeks.").font(.stBody).foregroundStyle(Theme.secondaryText)
+                Text("No classes in the next two weeks.").font(.stBody).foregroundStyle(Theme.textSecondary)
                 Button("Import your timetable") { model.go(.connections(.calendars)) }.buttonStyle(QuietButtonStyle())
             }
         }
@@ -197,7 +197,7 @@ struct DueSoonCard: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionHeader(title: "Due in the next 7 days", trailing: AnyView(Button("See all") { model.go(.assignments) }.buttonStyle(.borderless).font(.stSmall)))
             if items.isEmpty {
-                Text("Nothing due this week.").font(.stBody).foregroundStyle(Theme.secondaryText).padding(.vertical, 6)
+                Text("Nothing due this week.").font(.stBody).foregroundStyle(Theme.textSecondary).padding(.vertical, 6)
             }
             ForEach(items.prefix(5)) { a in
                 Button { model.openAssignment(a.id) } label: { AssignmentLine(a: a, courses: courses, now: now) }.buttonStyle(.plain)
@@ -220,9 +220,9 @@ struct AssignmentLine: View {
         let within48 = (a.dueAt.map { $0.timeIntervalSince(now) < 48 * 3600 && $0 > now } ?? false) && a.isOpen
         HStack(spacing: 10) {
             CourseDot(color: a.courseId.flatMap { courses[$0]?.color })
-            if a.kind == .exam { Image(systemName: "exclamationmark.square").foregroundStyle(Theme.secondaryText).accessibilityLabel("Exam") }
+            if a.kind == .exam { Image(systemName: "exclamationmark.square").foregroundStyle(Theme.textSecondary).accessibilityLabel("Exam") }
             Text(a.title).font(.stBody).lineLimit(1)
-            if let c = a.courseId.flatMap({ courses[$0] }) { Text(c.displayName).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+            if let c = a.courseId.flatMap({ courses[$0] }) { Text(c.displayName).font(.stSmall).foregroundStyle(Theme.textTertiary) }
             Spacer()
             if let w = a.weightPct { Chip(text: Formatters.percent(w)) }
             HStack(spacing: 4) {
@@ -230,10 +230,10 @@ struct AssignmentLine: View {
                 Text(overdue ? "Overdue · \(a.dueAt.map { Formatters.dayTime($0, tz: model.tz) } ?? "")" : Formatters.due(a.dueAt, tz: model.tz, now: now))
             }
             .font(.stSmall).monospacedDigit().lineLimit(1).fixedSize()
-            .foregroundStyle(overdue || within48 ? Theme.accent : Theme.secondaryText)
+            .foregroundStyle(overdue || within48 ? Theme.attention : Theme.textSecondary)
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.subtleFill))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(6)).fill(Theme.fillSubtle))
         .contentShape(Rectangle())
     }
 }
@@ -263,10 +263,10 @@ struct OnboardingCard: View {
 
     func step(_ n: Int, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text("\(n)").font(.stBodyStrong).frame(width: 24, height: 24).background(Circle().fill(Theme.subtleFill))
+            Text("\(n)").font(.stBodyStrong).frame(width: 24, height: 24).background(Circle().fill(Theme.fillSubtle))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.stBodyStrong)
-                Text(detail).font(.stBody).foregroundStyle(Theme.secondaryText)
+                Text(detail).font(.stBody).foregroundStyle(Theme.textSecondary)
             }
         }
     }

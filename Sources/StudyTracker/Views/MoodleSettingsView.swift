@@ -90,20 +90,20 @@ struct MoodleConnectView: View {
             VStack(spacing: 6) {
                 Text("Connect your Moodle").font(.stHeading)
                 Text("Deadlines, grades and new course files come in on their own and stay up to date.")
-                    .font(.stBody).foregroundStyle(Theme.secondaryText).multilineTextAlignment(.center)
+                    .font(.stBody).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
             }
             VStack(alignment: .leading, spacing: 8) {
-                Text("Your school's Moodle address").font(.stSmallStrong).foregroundStyle(Theme.secondaryText)
+                Text("Your school's Moodle address").font(.stSmallStrong).foregroundStyle(Theme.textSecondary)
                 HStack(spacing: 8) {
-                    Image(systemName: "globe").foregroundStyle(Theme.tertiaryText)
+                    Image(systemName: "globe").foregroundStyle(Theme.textTertiary)
                     TextField("", text: $site, prompt: Text("moodle.yourschool.edu"))
                         .textFieldStyle(.plain).font(.stBody)
                         .onSubmit { if canSignIn { startSignIn() } }
                     lookupIcon
                 }
                 .padding(.horizontal, 12).frame(height: 38)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.14)))
+                .background(RoundedRectangle(cornerRadius: Theme.corner(8)).fill(Theme.surfaceRaised))
+                .overlay(RoundedRectangle(cornerRadius: Theme.corner(8)).strokeBorder(Theme.textPrimary.opacity(0.14)))
                 lookupCaption.font(.stSmall).frame(minHeight: 16, alignment: .top)
             }
             VStack(spacing: 12) {
@@ -114,21 +114,21 @@ struct MoodleConnectView: View {
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(!canSignIn)
                 Label("You'll sign in on your school's own page. Study Tracker never reads or stores your password.", systemImage: "lock.shield")
-                    .font(.stSmall).foregroundStyle(Theme.secondaryText).multilineTextAlignment(.center)
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
             }
         }
         .padding(28)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Theme.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.hairline))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(14)).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner(14)).strokeBorder(Theme.hairline))
     }
 
     @ViewBuilder var lookupIcon: some View {
         switch lookup {
         case .checking: ProgressView().controlSize(.small)
         case .found(let p) where p.appAccess: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.success)
-        case .found: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.accent)
-        case .notFound: Image(systemName: "questionmark.circle").foregroundStyle(Theme.tertiaryText)
+        case .found: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attention)
+        case .notFound: Image(systemName: "questionmark.circle").foregroundStyle(Theme.textTertiary)
         case .idle: EmptyView()
         }
     }
@@ -137,15 +137,15 @@ struct MoodleConnectView: View {
         switch lookup {
         case .found(let p) where p.appAccess:
             if let provider = p.providerName {
-                Text("Found \(Text(p.name).fontWeight(.semibold)) · signs in with \(provider)").foregroundStyle(Theme.secondaryText)
+                Text("Found \(Text(p.name).fontWeight(.semibold)) · signs in with \(provider)").foregroundStyle(Theme.textSecondary)
             } else {
-                Text("Found \(Text(p.name).fontWeight(.semibold))").foregroundStyle(Theme.secondaryText)
+                Text("Found \(Text(p.name).fontWeight(.semibold))").foregroundStyle(Theme.textSecondary)
             }
         case .found(let p):
             Text("\(p.name) has turned off app access, so Moodle can't connect. You can still get deadlines by adding its calendar link in Connections › Calendars.")
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.attention)
         case .notFound:
-            Text("No Moodle found here yet. Copy the address from your browser while you're on Moodle.").foregroundStyle(Theme.secondaryText)
+            Text("No Moodle found here yet. Copy the address from your browser while you're on Moodle.").foregroundStyle(Theme.textSecondary)
         case .idle, .checking:
             Text(" ")
         }
@@ -187,11 +187,11 @@ struct MoodleConnectView: View {
                     TextField("Moodle username", text: $username).textFieldStyle(.roundedBorder)
                     SecureField("Password", text: $password).textFieldStyle(.roundedBorder)
                     Text("For schools without single sign-on. The password is used once to get a key, then discarded.")
-                        .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                        .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 } else {
                     SecureField("Moodle mobile web service key", text: $key).textFieldStyle(.roundedBorder)
                     Text("In Moodle: your profile → Preferences → Security keys → copy the \"Moodle mobile web service\" key.")
-                        .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                        .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 }
                 Button(working ? "Connecting…" : "Connect") { connectOther() }
                     .buttonStyle(QuietButtonStyle())
@@ -200,7 +200,7 @@ struct MoodleConnectView: View {
             .frame(maxWidth: 420, alignment: .leading)
             .padding(.top, 10)
         } label: {
-            Text("Other ways to connect").font(.stBody).foregroundStyle(Theme.secondaryText)
+            Text("Other ways to connect").font(.stBody).foregroundStyle(Theme.textSecondary)
         }
     }
 
@@ -238,12 +238,12 @@ struct MoodleFeatureTiles: View {
         VStack(alignment: .leading, spacing: 6) {
             Image(systemName: icon).font(.system(size: 17, weight: .medium)).frame(height: 22)
             Text(title).font(.system(size: Theme.Size.s, weight: .semibold))
-            Text(detail).font(.stSmall).foregroundStyle(Theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(detail).font(.stSmall).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.hairline))
+        .background(RoundedRectangle(cornerRadius: Theme.radiusCard).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).strokeBorder(Theme.hairline))
     }
 }
 
@@ -293,7 +293,7 @@ struct MoodleConnectedView: View {
             MoodleLinkGraphic(state: graphic, logoURL: store.setting("moodle_logo_url").flatMap(URL.init(string:)), animateIn: justConnected)
             VStack(spacing: 8) {
                 if needsSignIn {
-                    StatusPill(text: "Sign-in expired", systemImage: "exclamationmark.triangle.fill", color: Theme.accent)
+                    StatusPill(text: "Sign-in expired", systemImage: "exclamationmark.triangle.fill", color: Theme.attention)
                 } else if importing {
                     StatusPill(text: "Importing from Moodle", systemImage: "arrow.down.circle.fill", color: Theme.success)
                 } else {
@@ -301,7 +301,7 @@ struct MoodleConnectedView: View {
                 }
                 Text(schoolName).font(.stHeading).multilineTextAlignment(.center)
                 Text([site?.host, user.map { "Signed in as \($0)" }].compactMap { $0 }.joined(separator: " · "))
-                    .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
             }
             if importing {
                 firstImportSteps
@@ -316,8 +316,8 @@ struct MoodleConnectedView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Theme.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(needsSignIn ? Theme.accent.opacity(0.35) : Theme.success.opacity(0.35)))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(14)).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner(14)).strokeBorder(needsSignIn ? Theme.attention.opacity(0.35) : Theme.success.opacity(0.35)))
     }
 
     var firstImportSteps: some View {
@@ -338,11 +338,11 @@ struct MoodleConnectedView: View {
                 switch state {
                 case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.success)
                 case .active: ProgressView().controlSize(.small)
-                case .waiting: Image(systemName: "circle").foregroundStyle(Theme.tertiaryText)
+                case .waiting: Image(systemName: "circle").foregroundStyle(Theme.textTertiary)
                 }
             }
             .frame(width: 18)
-            Text(text).font(.stBody).foregroundStyle(state == .waiting ? Theme.tertiaryText : Color.primary)
+            Text(text).font(.stBody).foregroundStyle(state == .waiting ? Theme.textTertiary : Theme.textPrimary)
         }
     }
 
@@ -352,18 +352,18 @@ struct MoodleConnectedView: View {
         let linkedNone = MoodleSync.stats(store: model.store).courses == 0
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: report?.errors.isEmpty == false ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(report?.errors.isEmpty == false ? Theme.accent : Theme.success)
+                .foregroundStyle(report?.errors.isEmpty == false ? Theme.attention : Theme.success)
             VStack(alignment: .leading, spacing: 2) {
                 Text("You're connected").font(.system(size: Theme.Size.s, weight: .semibold))
-                Text(welcomeDetail(report, linkedNone: linkedNone)).font(.stSmall).foregroundStyle(Theme.secondaryText)
+                Text(welcomeDetail(report, linkedNone: linkedNone)).font(.stSmall).foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             Button { withAnimation { justConnected = false } } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
-                .buttonStyle(.borderless).foregroundStyle(Theme.tertiaryText).help("Dismiss")
+                .buttonStyle(.borderless).foregroundStyle(Theme.textTertiary).help("Dismiss")
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.success.opacity(0.1)))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(8)).fill(Theme.success.opacity(0.1)))
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
@@ -393,10 +393,10 @@ struct MoodleConnectedView: View {
     func stat(_ value: Int, _ label: String) -> some View {
         VStack(spacing: 2) {
             Text("\(value)").font(.system(size: 22, weight: .semibold)).monospacedDigit().contentTransition(.numericText())
-            Text(label).font(.stSmall).foregroundStyle(Theme.secondaryText)
+            Text(label).font(.stSmall).foregroundStyle(Theme.textSecondary)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.subtleFill))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(8)).fill(Theme.fillSubtle))
         .animation(.smooth, value: value)
     }
 
@@ -407,10 +407,10 @@ struct MoodleConnectedView: View {
         let last = store.setting("moodle_last_sync").flatMap { ISO.parse($0) }
         return HStack(spacing: 10) {
             Image(systemName: failed == nil ? "arrow.triangle.2.circlepath" : "exclamationmark.triangle.fill")
-                .foregroundStyle(failed == nil ? Theme.tertiaryText : Theme.accent)
+                .foregroundStyle(failed == nil ? Theme.textTertiary : Theme.attention)
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 if let failed {
-                    Text(failed).foregroundStyle(Theme.accent).lineLimit(2)
+                    Text(failed).foregroundStyle(Theme.attention).lineLimit(2)
                 } else if svc.syncing {
                     Text("Syncing now…")
                 } else if let last {
@@ -419,7 +419,7 @@ struct MoodleConnectedView: View {
                     Text("Checks for new work every 3 hours")
                 }
             }
-            .font(.stSmall).foregroundStyle(Theme.secondaryText)
+            .font(.stSmall).foregroundStyle(Theme.textSecondary)
             Spacer()
             Button(svc.syncing ? "Syncing…" : "Sync now") { Task { await svc.sync(silent: false) } }
                 .buttonStyle(QuietButtonStyle()).disabled(svc.syncing)
@@ -433,7 +433,7 @@ struct MoodleConnectedView: View {
     var expiredFooter: some View {
         VStack(spacing: 12) {
             Text("Your school ended this connection, which happens when Moodle keys expire. Sign in again and syncing picks up where it left off.")
-                .font(.stSmall).foregroundStyle(Theme.secondaryText).multilineTextAlignment(.center)
+                .font(.stSmall).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
             Button(action: reconnect) {
                 Label(reconnecting ? "Opening sign-in…" : model.store.setting("moodle_provider_name").map { "Reconnect with \($0)" } ?? "Reconnect",
                       systemImage: "lock.fill")
@@ -461,16 +461,16 @@ struct MoodleConnectedView: View {
             let linkedCount = mcs.filter { mc in courses.contains { $0.moodleId == mc.id } }.count
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "Courses", trailing: AnyView(
-                    Text("\(linkedCount) of \(mcs.count) linked").font(.stSmall).foregroundStyle(Theme.secondaryText)))
+                    Text("\(linkedCount) of \(mcs.count) linked").font(.stSmall).foregroundStyle(Theme.textSecondary)))
                 VStack(spacing: 0) {
                     ForEach(Array(mcs.enumerated()), id: \.element.id) { i, mc in
                         if i > 0 { Divider().padding(.leading, 40) }
                         courseRow(mc, local: courses.first { $0.moodleId == mc.id }, courses: courses)
                     }
                 }
-                .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.cardFill))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.hairline))
-                Text("Deadlines, grades and files come in only for linked courses.").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                .background(RoundedRectangle(cornerRadius: Theme.radiusCard).fill(Theme.surface))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).strokeBorder(Theme.hairline))
+                Text("Deadlines, grades and files come in only for linked courses.").font(.stSmall).foregroundStyle(Theme.textTertiary)
             }
         }
     }
@@ -479,12 +479,12 @@ struct MoodleConnectedView: View {
         HStack(spacing: 12) {
             Group {
                 if let local { CourseDot(color: local.color, size: 10) }
-                else { Circle().strokeBorder(Theme.tertiaryText, lineWidth: 1.2).frame(width: 10, height: 10) }
+                else { Circle().strokeBorder(Theme.textTertiary, lineWidth: 1.2).frame(width: 10, height: 10) }
             }
             .frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Text(mc.fullname).font(.stBody).lineLimit(1)
-                Text(local == nil ? "Not linked" : mc.shortname).font(.stSmall).foregroundStyle(Theme.tertiaryText).lineLimit(1)
+                Text(local == nil ? "Not linked" : mc.shortname).font(.stSmall).foregroundStyle(Theme.textTertiary).lineLimit(1)
             }
             Spacer(minLength: 12)
             if local == nil {
@@ -531,7 +531,7 @@ struct MoodleConnectedView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.stBody)
-                Text(detail).font(.stSmall).foregroundStyle(Theme.secondaryText)
+                Text(detail).font(.stSmall).foregroundStyle(Theme.textSecondary)
             }
             Spacer()
             Toggle("", isOn: boolBinding(model, key, default: true)).labelsHidden().toggleStyle(.switch).controlSize(.small)
@@ -555,9 +555,9 @@ struct MoodleConnectedView: View {
                 if https { securityRow("lock.fill", "Encrypted", "Everything travels over HTTPS, straight between this Mac and your school.") }
                 Divider().padding(.vertical, 4)
                 HStack {
-                    Text("Disconnecting deletes the key right away. What's already imported stays.").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    Text("Disconnecting deletes the key right away. What's already imported stays.").font(.stSmall).foregroundStyle(Theme.textSecondary)
                     Spacer()
-                    Button("Disconnect…") { confirmDisconnect = true }.buttonStyle(QuietButtonStyle()).foregroundStyle(Theme.accent)
+                    Button("Disconnect…") { confirmDisconnect = true }.buttonStyle(QuietButtonStyle()).foregroundStyle(Theme.attention)
                 }
             }
         }
@@ -568,7 +568,7 @@ struct MoodleConnectedView: View {
             Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Theme.success).frame(width: 18, height: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: Theme.Size.s, weight: .medium))
-                Text(detail).font(.stSmall).foregroundStyle(Theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.stSmall).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 2)
@@ -578,7 +578,7 @@ struct MoodleConnectedView: View {
 struct StatusPill: View {
     var text: String
     var systemImage: String
-    var color: Color
+    var color: ThemeColor
     var body: some View {
         Label(text, systemImage: systemImage)
             .font(.stSmallStrong)
@@ -618,7 +618,7 @@ struct MoodleLinkGraphic: View {
         ZStack {
             switch state {
             case .idle:
-                HLine().stroke(Theme.tertiaryText, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 6]))
+                HLine().stroke(Theme.textTertiary, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 6]))
             case .connecting:
                 // Dashes flowing from the school towards Study Tracker while the first import runs.
                 HLine().stroke(Theme.success, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [6, 6], dashPhase: flow))
@@ -627,34 +627,35 @@ struct MoodleLinkGraphic: View {
                 HLine().stroke(Theme.success.opacity(0.18), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 HLine().trim(from: 0, to: drawn).stroke(Theme.success, style: StrokeStyle(lineWidth: 3, lineCap: .round))
             case .broken:
-                HLine().stroke(Theme.accent.opacity(0.7), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 6]))
+                HLine().stroke(Theme.attention.opacity(0.7), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 6]))
             }
             badge
         }
     }
 
     var badge: some View {
-        let (icon, fill, fg): (String, Color, Color) = switch state {
-        case .idle: ("link", Color(nsColor: .windowBackgroundColor), Theme.secondaryText)
-        case .connecting: ("arrow.down", Theme.success, .white)
-        case .connected: ("lock.fill", Theme.success, .white)
-        case .broken: ("exclamationmark", Theme.accent, .white)
+        let (icon, fill, fg): (String, ThemeColor, AnyShapeStyle) = switch state {
+        case .idle: ("link", Theme.canvas, AnyShapeStyle(Theme.textSecondary))
+        case .connecting: ("arrow.down", Theme.success, AnyShapeStyle(Color.white))
+        case .connected: ("lock.fill", Theme.success, AnyShapeStyle(Color.white))
+        case .broken: ("exclamationmark", Theme.attention, AnyShapeStyle(Color.white))
         }
         return ZStack {
             Circle().fill(fill)
-            Circle().strokeBorder(state == .idle ? Color.primary.opacity(0.15) : .clear)
+            Circle().strokeBorder(state == .idle ? Theme.textPrimary.opacity(0.15) : Theme.clear)
             Image(systemName: icon).font(.system(size: 13, weight: .bold)).foregroundStyle(fg)
         }
         .frame(width: 32, height: 32)
         .scaleEffect(state == .connected ? 0.7 + 0.3 * drawn : 1)
-        .shadow(color: state == .idle ? .clear : fill.opacity(0.35), radius: 6, y: 2)
+        .shadow(color: state == .idle ? .clear : .black.opacity(0.18), radius: 6, y: 2)
     }
 
     /// Logos are drawn for light backgrounds, so the tile stays white in dark mode too.
     var schoolTile: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 14).fill(Color.white)
-            RoundedRectangle(cornerRadius: 14).strokeBorder(Color.black.opacity(0.08))
+            // A school logo is drawn for a white background, so its tile stays white in every theme and mode.
+            RoundedRectangle(cornerRadius: Theme.corner(14)).fill(Color.white)
+            RoundedRectangle(cornerRadius: Theme.corner(14)).strokeBorder(Color.black.opacity(0.08))
             if let logoURL {
                 AsyncImage(url: logoURL) { image in
                     image.resizable().interpolation(.high).scaledToFit().padding(10)
@@ -709,7 +710,7 @@ struct MoodleSSOSheet: View {
             }
             Divider()
             Text("Your password goes only to your school's sign-in page. This window closes by itself once you're connected.")
-                .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.vertical, 12)
         }
@@ -724,7 +725,7 @@ struct MoodleSSOSheet: View {
                 Image(systemName: "lock.shield.fill").font(.system(size: 18)).foregroundStyle(Theme.success)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Sign in to \(launch.schoolName)").font(.stBodyStrong)
-                    Text("Secure sign-in for Study Tracker").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    Text("Secure sign-in for Study Tracker").font(.stSmall).foregroundStyle(Theme.textSecondary)
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -732,15 +733,15 @@ struct MoodleSSOSheet: View {
             // Like a browser's address bar: which site is asking for the password, and whether the line is encrypted.
             HStack(spacing: 6) {
                 Image(systemName: secure ? "lock.fill" : "lock.open.fill").font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(secure ? Theme.success : Theme.accent)
-                Text(shown.host ?? shown.absoluteString).font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(1)
+                    .foregroundStyle(secure ? Theme.success : Theme.attention)
+                Text(shown.host ?? shown.absoluteString).font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(1)
                 Spacer()
                 if loading && !signedIn { ProgressView().controlSize(.mini) }
             }
             .padding(.horizontal, 10).frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.subtleFill))
+            .background(RoundedRectangle(cornerRadius: Theme.corner(6)).fill(Theme.fillSubtle))
             if let problem {
-                Label(problem, systemImage: "exclamationmark.triangle.fill").font(.stSmall).foregroundStyle(Theme.accent)
+                Label(problem, systemImage: "exclamationmark.triangle.fill").font(.stSmall).foregroundStyle(Theme.attention)
             }
         }
         .padding(16)
@@ -751,10 +752,10 @@ struct MoodleSSOSheet: View {
             Image(systemName: "checkmark.circle.fill").font(.system(size: 56)).foregroundStyle(Theme.success)
                 .symbolEffect(.bounce, value: signedIn)
             Text("Signed in").font(.stHeading)
-            Text("Connecting Study Tracker to \(launch.schoolName)…").font(.stBody).foregroundStyle(Theme.secondaryText)
+            Text("Connecting Study Tracker to \(launch.schoolName)…").font(.stBody).foregroundStyle(Theme.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Theme.canvas)
     }
 }
 

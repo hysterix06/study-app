@@ -66,7 +66,7 @@ struct SettingsScreen: View {
                 List(selection: Binding(get: { section }, set: { if let s = $0 { model.go(s.route, replace: true) } })) {
                     ForEach(SettingsSection.allCases) { s in Label(s.title, systemImage: s.icon).tag(s) }
                 }
-                Text("Study Tracker | v\(appVersion)").font(.stSmall).foregroundStyle(Theme.tertiaryText).textSelection(.enabled).padding(12)
+                Text("Study Tracker | v\(appVersion)").font(.stSmall).foregroundStyle(Theme.textTertiary).textSelection(.enabled).padding(12)
             }.frame(width: 230)
             Divider()
             ScrollView {
@@ -151,14 +151,14 @@ struct TermsSettings: View {
     var body: some View {
         let terms = model.store.terms()
         VStack(alignment: .leading, spacing: 12) {
-            Text("Classes only appear inside a term. Breaks (holidays, reading weeks) skip classes automatically.").font(.stBody).foregroundStyle(Theme.secondaryText)
+            Text("Classes only appear inside a term. Breaks (holidays, reading weeks) skip classes automatically.").font(.stBody).foregroundStyle(Theme.textSecondary)
             ForEach(terms) { t in
                 Panel {
                     HStack {
                         Text(t.name).font(.stBodyStrong)
                         if t.isCurrent { Chip(text: "Current") }
                         Spacer()
-                        Text("\(t.startDate.string) → \(t.endDate.string)").font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText)
+                        Text("\(t.startDate.string) → \(t.endDate.string)").font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary)
                         Button("Edit") { editing = t }.buttonStyle(.borderless)
                     }
                     BreaksEditor(term: t)
@@ -215,7 +215,7 @@ struct BreaksEditor: View {
             ForEach(model.store.breaks(termId: term.id)) { b in
                 HStack {
                     Text(b.label ?? "Break").font(.stBody)
-                    Text("\(b.startDate.string) → \(b.endDate.string)").font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText)
+                    Text("\(b.startDate.string) → \(b.endDate.string)").font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary)
                     Spacer()
                     Button("Remove") { model.run("Removed break.") { try model.store.trashRow(kind: "break", table: "term_breaks", id: b.id, label: b.label ?? "break") } }.buttonStyle(.borderless).font(.stSmall)
                 }
@@ -246,7 +246,7 @@ struct CalendarSettings: View {
         let sources = model.store.calendarSources()
         VStack(alignment: .leading, spacing: 14) {
             Text("Import your timetable from Outlook or any calendar. Add work shifts as busy time so the planner works around them.")
-                .font(.stBody).foregroundStyle(Theme.secondaryText)
+                .font(.stBody).foregroundStyle(Theme.textSecondary)
             HStack {
                 Button("Import .ics file…") {
                     let p = NSOpenPanel(); p.allowedContentTypes = [UTType(filenameExtension: "ics")!].compactMap { $0 }
@@ -261,20 +261,20 @@ struct CalendarSettings: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(s.name).font(.stBodyStrong)
                         Text("\(s.role == "busy" ? "Busy time" : "School") · \(s.lastSyncedAt.map { "updated \(RelativeTime.describe($0))" } ?? "never synced") · \(s.lastStatus ?? "")")
-                            .font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(2)
+                            .font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     }
                     Spacer()
                     Button("Remove") { model.run("Removed \(s.name).") { try model.store.removeCalendarSource(s.id); return nil } }.buttonStyle(.borderless)
                 }
-                .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+                .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
             }
             Panel {
                 Text("Where to find calendar links").font(.stBodyStrong)
                 Text("Outlook on the web: Settings → Calendar → Shared calendars → Publish a calendar → copy the ICS link. If publishing is blocked, use File → Save Calendar in Outlook for Mac and import the file.")
-                    .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 Text("Moodle: Calendar → Export calendar → All events → Get calendar URL. Connecting Moodle directly (Connections › Moodle) also brings grades and course files.")
-                    .font(.stSmall).foregroundStyle(Theme.secondaryText)
-                Text("Links contain private tokens. They are stored in your Mac's Keychain, never in the database or logs.").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
+                Text("Links contain private tokens. They are stored in your Mac's Keychain, never in the database or logs.").font(.stSmall).foregroundStyle(Theme.textTertiary)
             }
         }
         .sheet(isPresented: $addingFeed) { FeedSheet() }
@@ -329,7 +329,7 @@ struct ClaudeSettings: View {
         let cli = svc.findCLI()
         VStack(alignment: .leading, spacing: 16) {
             Text("Claude reads your lectures through a small local server (MCP) and saves concepts, questions and sheets back here. The app works fully without it.")
-                .font(.stBody).foregroundStyle(Theme.secondaryText)
+                .font(.stBody).foregroundStyle(Theme.textSecondary)
             Panel {
                 HStack {
                     Image(systemName: state == .connected || state == .extensionInstalled ? "checkmark.circle.fill" : "circle.dashed")
@@ -364,7 +364,7 @@ struct ClaudeSettings: View {
                 row("Last Claude activity", lastMCP.first.map { "\($0.action) · \(RelativeTime.describe($0.at))" } ?? "none yet")
                 if !lastMCP.isEmpty {
                     ForEach(Array(lastMCP.dropFirst().enumerated()), id: \.offset) { _, e in
-                        Text("\(e.action) · \(RelativeTime.describe(e.at))").font(.stSmall).foregroundStyle(Theme.tertiaryText).padding(.leading, 170)
+                        Text("\(e.action) · \(RelativeTime.describe(e.at))").font(.stSmall).foregroundStyle(Theme.textTertiary).padding(.leading, 170)
                     }
                 }
             }
@@ -372,7 +372,7 @@ struct ClaudeSettings: View {
                 SectionHeader(title: "Claude Code (optional, uses your Claude plan)")
                 row("Command-line tool", cli?.path ?? "Not found")
                 Text("With Claude Code installed, Process runs in the background and lectures can be processed as soon as they arrive, with no copy and paste. Conversations like recall and quizzes still happen in Claude Desktop.")
-                    .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 Toggle("Use Claude Code for Process buttons", isOn: boolBinding(model, "use_claude_code", default: true)).disabled(cli == nil)
                 Toggle("Process new lectures automatically once filed", isOn: boolBinding(model, "auto_process")).disabled(cli == nil)
                 Button("Look again") { svc.resetCLICache(); model.refresh() }.buttonStyle(.borderless).font(.stSmall)
@@ -380,7 +380,7 @@ struct ClaudeSettings: View {
             Panel {
                 SectionHeader(title: "Prompts")
                 Text("Every Copy prompt button produces self-contained text, so it works even if Claude Desktop doesn't show MCP prompts. In Claude Desktop you can also pick them from the + menu.")
-                    .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 HStack {
                     Button("Copy weekly plan prompt") { model.copyPrompt("weekly_plan", [:]) }.buttonStyle(QuietButtonStyle())
                     Button("Open Claude") { model.openClaude() }.buttonStyle(QuietButtonStyle())
@@ -400,7 +400,7 @@ struct ClaudeSettings: View {
 
     func row(_ k: String, _ v: String) -> some View {
         HStack(alignment: .top) {
-            Text(k).font(.stSmall).foregroundStyle(Theme.secondaryText).frame(width: 160, alignment: .leading)
+            Text(k).font(.stSmall).foregroundStyle(Theme.textSecondary).frame(width: 160, alignment: .leading)
             Text(v).font(.stSmall).textSelection(.enabled).lineLimit(3)
         }
     }
@@ -413,7 +413,7 @@ struct AppleSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Send classes, deadlines and planned study to Apple Calendar and Reminders. Through iCloud they reach your iPhone, Apple Watch and widgets. This is one-way; edits stay in Study Tracker.")
-                .font(.stBody).foregroundStyle(Theme.secondaryText)
+                .font(.stBody).foregroundStyle(Theme.textSecondary)
             Form {
                 Toggle("Show in Apple Calendar (a \"Study Tracker\" calendar)", isOn: Binding(
                     get: { model.store.boolSetting("calendar_sync_enabled") },
@@ -435,7 +435,7 @@ struct AppleSettings: View {
                             model.refresh()
                         }
                     }))
-                if let s = model.calendarSync.lastStatus { Text(s).font(.stSmall).foregroundStyle(Theme.secondaryText) }
+                if let s = model.calendarSync.lastStatus { Text(s).font(.stSmall).foregroundStyle(Theme.textSecondary) }
                 Section("Notifications") {
                     Toggle("Notify me about classes, deadlines and study blocks", isOn: Binding(
                         get: { model.store.boolSetting("notifications_enabled") },
@@ -476,27 +476,27 @@ struct RecentlyDeletedPanel: View {
         Panel {
             SectionHeader(title: "Recently Deleted")
             Text("Deleted items stay here for \(StudyStore.trashRetentionDays) days, then are removed for good.")
-                .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                .font(.stSmall).foregroundStyle(Theme.textSecondary)
             if items.isEmpty {
-                Text("Nothing deleted recently.").font(.stBody).foregroundStyle(Theme.secondaryText).padding(.vertical, 4)
+                Text("Nothing deleted recently.").font(.stBody).foregroundStyle(Theme.textSecondary).padding(.vertical, 4)
             }
             let days = Dictionary(grouping: items) { LocalDate($0.deletedAt, tz: tz) }
             ForEach(days.keys.sorted(by: >), id: \.self) { day in
-                Text(Formatters.day(day.at(LocalTime(hour: 12, minute: 0), tz: tz), tz: tz)).font(.stSmallStrong).foregroundStyle(Theme.tertiaryText)
+                Text(Formatters.day(day.at(LocalTime(hour: 12, minute: 0), tz: tz), tz: tz)).font(.stSmallStrong).foregroundStyle(Theme.textTertiary)
                     .padding(.top, 4)
                 ForEach(days[day] ?? []) { item in
                     HStack(spacing: 10) {
-                        Image(systemName: icon(item.kind)).foregroundStyle(Theme.secondaryText).frame(width: 18)
+                        Image(systemName: icon(item.kind)).foregroundStyle(Theme.textSecondary).frame(width: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(item.label).font(.stBody).lineLimit(1)
                             Text("\(item.kind == "inbox_batch" ? "Inbox" : item.kind.capitalized) · \(Formatters.time(item.deletedAt, tz: tz))")
-                                .font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                                .font(.stSmall).foregroundStyle(Theme.textTertiary)
                         }
                         Spacer()
                         Button("Restore") { model.run("Restored \(item.label).") { try model.store.restoreTrash(item.id); return nil } }
                             .buttonStyle(QuietButtonStyle())
                         Button("Delete now") { model.run { try model.store.deleteTrashNow(item.id); return nil } }
-                            .buttonStyle(.borderless).font(.stSmall).foregroundStyle(Theme.secondaryText)
+                            .buttonStyle(.borderless).font(.stSmall).foregroundStyle(Theme.textSecondary)
                     }
                     .padding(.vertical, 2)
                 }
@@ -530,13 +530,13 @@ struct DataSettings: View {
                 folder("Library", paths.library)
                 folder("Exports", paths.export)
                 HStack {
-                    Text("Database").font(.stSmall).foregroundStyle(Theme.secondaryText).frame(width: 170, alignment: .leading)
+                    Text("Database").font(.stSmall).foregroundStyle(Theme.textSecondary).frame(width: 170, alignment: .leading)
                     Text(paths.database.path).font(.stSmall).textSelection(.enabled)
                 }
             }
             Panel {
                 SectionHeader(title: "Backups")
-                Text("A copy is made every day (the last 14 are kept) and before Claude's first change in each session.").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                Text("A copy is made every day (the last 14 are kept) and before Claude's first change in each session.").font(.stSmall).foregroundStyle(Theme.textSecondary)
                 HStack {
                     Text(model.store.latestBackupDate().map { "Last backup \(RelativeTime.describe($0))" } ?? "No backup yet").font(.stBody)
                     Spacer()
@@ -555,7 +555,7 @@ struct DataSettings: View {
                         do { try Exporter.ankiExport(store: model.store, to: u); NSWorkspace.shared.activateFileViewerSelecting([u]) } catch { model.fail(error) }
                     }.buttonStyle(QuietButtonStyle())
                 }
-                Text("Anki: File → Import, choose the .tsv. Then review on your phone with AnkiMobile or AnkiDroid.").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                Text("Anki: File → Import, choose the .tsv. Then review on your phone with AnkiMobile or AnkiDroid.").font(.stSmall).foregroundStyle(Theme.textSecondary)
                 Divider()
                 HStack {
                     Text(model.store.setting("obsidian_vault_path").map { "Obsidian vault: \($0)" } ?? "No Obsidian vault chosen").font(.stSmall).lineLimit(1)
@@ -570,7 +570,7 @@ struct DataSettings: View {
                         do { try Exporter.markdownExport(store: model.store, to: dest, obsidian: true); model.show("Exported to \(dest.path).") } catch { model.fail(error) }
                     }.buttonStyle(QuietButtonStyle()).disabled(model.store.setting("obsidian_vault_path") == nil)
                 }
-                Text("One-way: Study Tracker writes into the vault and never reads from it.").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                Text("One-way: Study Tracker writes into the vault and never reads from it.").font(.stSmall).foregroundStyle(Theme.textTertiary)
             }
             Panel {
                 SectionHeader(title: "Sample data")
@@ -589,7 +589,7 @@ struct DataSettings: View {
 
     func folder(_ label: String, _ url: URL) -> some View {
         HStack {
-            Text(label).font(.stSmall).foregroundStyle(Theme.secondaryText).frame(width: 170, alignment: .leading)
+            Text(label).font(.stSmall).foregroundStyle(Theme.textSecondary).frame(width: 170, alignment: .leading)
             Text(url.path).font(.stSmall).lineLimit(1)
             Spacer()
             Button("Open") { NSWorkspace.shared.open(url) }.buttonStyle(.borderless).font(.stSmall)

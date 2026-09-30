@@ -61,11 +61,11 @@ struct InboxScreen: View {
                             HStack {
                                 Image(systemName: "book")
                                 Text(b.focus ?? "Study").font(.stBody)
-                                Text("\(Formatters.dayTime(b.plannedStart, tz: model.tz)) · \(b.plannedMinutes) min").font(.stSmall).foregroundStyle(Theme.secondaryText).monospacedDigit()
+                                Text("\(Formatters.dayTime(b.plannedStart, tz: model.tz)) · \(b.plannedMinutes) min").font(.stSmall).foregroundStyle(Theme.textSecondary).monospacedDigit()
                                 Spacer()
                                 Button("Dismiss") { model.run { try model.store.setBlockStatus(b.id, "dismissed"); return nil } }.buttonStyle(QuietButtonStyle())
                                 Button("Accept") { model.run { try model.store.setBlockStatus(b.id, "planned"); return nil } }.buttonStyle(PrimaryButtonStyle())
-                            }.padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+                            }.padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
                         }
                     }
                 }
@@ -73,9 +73,9 @@ struct InboxScreen: View {
                     section("Flashcards to approve", count: cards.count, trailing: AnyView(Button("Approve all") {
                         model.run("Approved \(cards.count) cards.") { for c in cards { try model.store.saveCard(id: c.id, front: c.front, back: c.back, status: "active") }; return nil }
                     }.buttonStyle(.borderless).font(.stSmall))) {
-                        Text("Rewriting a card in your own words makes it stick better.").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                        Text("Rewriting a card in your own words makes it stick better.").font(.stSmall).foregroundStyle(Theme.textSecondary)
                         ForEach(cards.prefix(12)) { c in ProposedCardRow(card: c) }
-                        if cards.count > 12 { Text("\(cards.count - 12) more in each course's Cards tab.").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                        if cards.count > 12 { Text("\(cards.count - 12) more in each course's Cards tab.").font(.stSmall).foregroundStyle(Theme.textTertiary) }
                     }
                 }
                 if !conflicts.isEmpty {
@@ -87,7 +87,7 @@ struct InboxScreen: View {
                                 Spacer()
                                 Button("Keep mine") { model.run { try model.store.resolveConflict(c.id, acceptIncoming: false); return nil } }.buttonStyle(QuietButtonStyle())
                                 Button("Use \(c.source == "moodle" ? "Moodle's" : "calendar's")") { model.run { try model.store.resolveConflict(c.id, acceptIncoming: true); return nil } }.buttonStyle(PrimaryButtonStyle())
-                            }.padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+                            }.padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
                         }
                     }
                 }
@@ -98,11 +98,11 @@ struct InboxScreen: View {
                                 Image(systemName: "exclamationmark.triangle")
                                 VStack(alignment: .leading) {
                                     Text(m.title).font(.stBody)
-                                    Text(m.statusDetail ?? m.status).font(.stSmall).foregroundStyle(Theme.secondaryText)
+                                    Text(m.statusDetail ?? m.status).font(.stSmall).foregroundStyle(Theme.textSecondary)
                                 }
                                 Spacer()
                                 Button("Remove") { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }.buttonStyle(QuietButtonStyle())
-                            }.padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+                            }.padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
                         }
                     }
                 }
@@ -151,11 +151,11 @@ struct FileToFileRow: View {
     var body: some View {
         let courses = model.store.courses()
         HStack(spacing: 10) {
-            Image(systemName: m.status == "failed" ? "exclamationmark.triangle" : "doc").foregroundStyle(m.status == "failed" ? Theme.accent : Theme.secondaryText)
+            Image(systemName: m.status == "failed" ? "exclamationmark.triangle" : "doc").foregroundStyle(m.status == "failed" ? Theme.attention : Theme.textSecondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(m.title).font(.stBody).lineLimit(1)
                 Text(m.status == "failed" ? (m.statusDetail ?? "Could not be read") : "\(m.originalFilename ?? "") · \(m.pageCount.map { "\($0) pages" } ?? "")")
-                    .font(.stSmall).foregroundStyle(m.status == "failed" ? Theme.accent : Theme.tertiaryText).lineLimit(2)
+                    .font(.stSmall).foregroundStyle(m.status == "failed" ? Theme.attention : Theme.textTertiary).lineLimit(2)
             }
             Spacer()
             if m.status != "failed" {
@@ -175,7 +175,7 @@ struct FileToFileRow: View {
                 Button("Remove") { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }.buttonStyle(QuietButtonStyle())
             }
         }
-        .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+        .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
         .onAppear { courseId = m.suggestedCourseId; role = m.role }
     }
 }
@@ -192,7 +192,7 @@ struct ReadyRow: View {
             CourseDot(color: course?.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text(m.title).font(.stBody).lineLimit(1)
-                Text("\(course?.displayName ?? "") · \(m.role.label)").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                Text("\(course?.displayName ?? "") · \(m.role.label)").font(.stSmall).foregroundStyle(Theme.textTertiary)
             }
             Spacer()
             Button("Skip") { model.run("Skipped \(m.title). It stays in its course.") { try model.store.skipMaterialUndoable(m.id) } }
@@ -204,7 +204,7 @@ struct ReadyRow: View {
                 Button("Copy prompt") { model.copyPrompt(prompt, ["material_id": "\(m.id)"]); model.openClaude() }.buttonStyle(PrimaryButtonStyle())
             }
         }
-        .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+        .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
     }
 }
 
@@ -220,7 +220,7 @@ struct ProposedAssignmentRow: View {
                 Text(a.title).font(.stBody)
                 Text([Formatters.due(a.dueAt, tz: model.tz), a.weightPct.map { Formatters.percent($0) }, a.source == "claude" ? "from Claude" : "from \(a.source.uppercased())", a.sourceLocator]
                         .compactMap { $0 }.joined(separator: " · "))
-                    .font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textTertiary)
             }
             Spacer()
             Picker("Course", selection: $courseId) {
@@ -231,7 +231,7 @@ struct ProposedAssignmentRow: View {
             Button("Confirm") { model.run("Added \(a.title).") { try model.store.confirmProposed(a.id, courseId: courseId); return nil } }
                 .buttonStyle(PrimaryButtonStyle()).disabled(courseId == nil)
         }
-        .padding(10).background(RoundedRectangle(cornerRadius: 7).fill(Theme.subtleFill))
+        .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
         .onAppear { courseId = a.courseId }
     }
 }
@@ -267,12 +267,12 @@ struct ICSPreviewSheet: View {
                                 Text("\(op.pattern.startTime.string)–\(op.pattern.endTime.string)").monospacedDigit()
                                 Text(courseName(op.course, courses: courses, plan: plan))
                                 Spacer()
-                                Text(op.action.rawValue).foregroundStyle(op.action == .conflict ? Theme.accent : Theme.secondaryText)
+                                Text(op.action.rawValue).foregroundStyle(op.action == .conflict ? Theme.attention : Theme.textSecondary)
                             }.font(.stSmall)
                         }
                     }
                     if !plan.exceptions.isEmpty {
-                        Text("\(plan.exceptions.count) canceled or moved class\(plan.exceptions.count == 1 ? "" : "es")").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                        Text("\(plan.exceptions.count) canceled or moved class\(plan.exceptions.count == 1 ? "" : "es")").font(.stSmall).foregroundStyle(Theme.textSecondary)
                     }
                     let newEvents = plan.events.filter { $0.action != .unchanged }
                     if !newEvents.isEmpty {
@@ -280,7 +280,7 @@ struct ICSPreviewSheet: View {
                         ForEach(newEvents.prefix(12), id: \.event.externalUid) { op in
                             HStack { Text(op.event.title).lineLimit(1); Spacer(); Text(Formatters.dayTime(op.event.start, tz: model.tz)).monospacedDigit() }.font(.stSmall)
                         }
-                        if newEvents.count > 12 { Text("and \(newEvents.count - 12) more").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                        if newEvents.count > 12 { Text("and \(newEvents.count - 12) more").font(.stSmall).foregroundStyle(Theme.textTertiary) }
                     }
                     if !plan.assignments.isEmpty {
                         SectionHeader(title: "Deadlines (you'll confirm them in the Inbox)")

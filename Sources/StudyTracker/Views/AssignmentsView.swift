@@ -59,7 +59,7 @@ struct QuickAddBar: View {
         let courseId = pickedCourse ?? parsed.courseId
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: "plus").foregroundStyle(Theme.tertiaryText)
+                Image(systemName: "plus").foregroundStyle(Theme.textTertiary)
                 TextField("Add an assignment: title, course, date, weight, hours", text: $text)
                     .textFieldStyle(.plain).font(.stBodyStrong)
                     .focused($focused)
@@ -70,8 +70,8 @@ struct QuickAddBar: View {
                 }
             }
             .padding(.horizontal, 12).frame(height: 40)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.subtleFill))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(focused ? Color.primary.opacity(0.25) : Theme.hairline))
+            .background(RoundedRectangle(cornerRadius: Theme.corner(8)).fill(Theme.fillSubtle))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner(8)).strokeBorder(focused ? Theme.textPrimary.opacity(0.25) : Theme.hairline))
             if !text.isEmpty {
                 HStack(spacing: 6) {
                     // The course chip is a picker; it is highlighted when the course is missing or ambiguous.
@@ -88,12 +88,12 @@ struct QuickAddBar: View {
                     }
                     .menuStyle(.borderlessButton).fixedSize()
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(courseId == nil ? Theme.accent.opacity(0.12) : Theme.subtleFill))
+                    .background(RoundedRectangle(cornerRadius: Theme.corner(4)).fill(courseId == nil ? Theme.attention.opacity(0.12) : Theme.fillSubtle))
                     ForEach(parsed.pieces.filter { $0.kind != .course }, id: \.self) { p in
                         Chip(text: p.text, systemImage: icon(p.kind))
                     }
                     Spacer()
-                    Text(parsed.title).font(.stSmall).foregroundStyle(Theme.tertiaryText).lineLimit(1)
+                    Text(parsed.title).font(.stSmall).foregroundStyle(Theme.textTertiary).lineLimit(1)
                 }
             }
         }
@@ -152,7 +152,7 @@ struct AssignmentList: View {
                                     Text(title.uppercased()).font(.stSmallStrong).kerning(0.6)
                                     Text("\(list.count)").font(.stSmall).monospacedDigit()
                                     if title == "Overdue" { Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)) }
-                                }.foregroundStyle(title == "Overdue" ? Theme.accent : Theme.tertiaryText)
+                                }.foregroundStyle(title == "Overdue" ? Theme.attention : Theme.textTertiary)
                             }.buttonStyle(.plain)
                             if isOpen {
                                 let limit = expanded.contains(title + ".more") ? list.count : 7
@@ -180,7 +180,7 @@ struct StatusControl: View {
             }
         } label: {
             Image(systemName: icon(a.status)).font(.system(size: 15))
-                .foregroundStyle(a.isOpen ? Theme.secondaryText : Color.primary)
+                .foregroundStyle(a.isOpen ? Theme.textSecondary : Theme.textPrimary)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .accessibilityLabel("Status: \(a.status.label)")
@@ -209,11 +209,11 @@ struct AssignmentRow: View {
             if a.kind == .exam { Image(systemName: "exclamationmark.square").accessibilityLabel("Exam") }
             VStack(alignment: .leading, spacing: 1) {
                 Text(a.title).font(.stBody).strikethrough(!a.isOpen && a.status == .submitted ? false : false)
-                    .foregroundStyle(a.isOpen ? .primary : Theme.secondaryText)
+                    .foregroundStyle(a.isOpen ? Theme.textPrimary : Theme.textSecondary)
                 HStack(spacing: 6) {
-                    Text(course?.displayName ?? "No course").font(.stSmall).foregroundStyle(Theme.tertiaryText)
-                    if a.groupMembers != nil { Image(systemName: "person.2").font(.system(size: 10)).foregroundStyle(Theme.tertiaryText).accessibilityLabel("Group work") }
-                    if a.source == "moodle" { Text("Moodle").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                    Text(course?.displayName ?? "No course").font(.stSmall).foregroundStyle(Theme.textTertiary)
+                    if a.groupMembers != nil { Image(systemName: "person.2").font(.system(size: 10)).foregroundStyle(Theme.textTertiary).accessibilityLabel("Group work") }
+                    if a.source == "moodle" { Text("Moodle").font(.stSmall).foregroundStyle(Theme.textTertiary) }
                 }
             }
             Spacer()
@@ -225,11 +225,11 @@ struct AssignmentRow: View {
                 Text(Formatters.due(a.dueAt, tz: model.tz, now: now))
             }
             .font(.stSmall).monospacedDigit().lineLimit(1).fixedSize()
-            .foregroundStyle(overdue || soon ? Theme.accent : Theme.secondaryText)
+            .foregroundStyle(overdue || soon ? Theme.attention : Theme.textSecondary)
             .frame(minWidth: 170, alignment: .trailing)
         }
         .padding(.vertical, 7).padding(.horizontal, 10)
-        .background(RoundedRectangle(cornerRadius: 7).fill(model.selectedAssignmentId == a.id ? Color.primary.opacity(0.07) : Theme.subtleFill))
+        .background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(model.selectedAssignmentId == a.id ? Theme.textPrimary.opacity(0.07) : Theme.fillSubtle))
         .contentShape(Rectangle())
         .onTapGesture { model.selectedAssignmentId = a.id }
         .onDrag { NSItemProvider(object: "\(a.id)" as NSString) }
@@ -248,7 +248,7 @@ struct AssignmentBoard: View {
                 ForEach(AssignmentStatus.allCases) { status in
                     let col = items.filter { $0.status == status }
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack { Text(status.label.uppercased()).font(.stSmallStrong).kerning(0.6).foregroundStyle(Theme.tertiaryText); Text("\(col.count)").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                        HStack { Text(status.label.uppercased()).font(.stSmallStrong).kerning(0.6).foregroundStyle(Theme.textTertiary); Text("\(col.count)").font(.stSmall).foregroundStyle(Theme.textTertiary) }
                         ScrollView {
                             VStack(spacing: 8) {
                                 ForEach(col) { a in
@@ -256,14 +256,14 @@ struct AssignmentBoard: View {
                                         HStack(spacing: 6) { CourseDot(color: a.courseId.flatMap { courses[$0]?.color }); Text(a.title).font(.stBody).lineLimit(2) }
                                         HStack {
                                             Text(Formatters.due(a.dueAt, tz: model.tz)).font(.stSmall).monospacedDigit()
-                                                .foregroundStyle(a.isOverdue(now: Date()) ? Theme.accent : Theme.secondaryText)
+                                                .foregroundStyle(a.isOverdue(now: Date()) ? Theme.attention : Theme.textSecondary)
                                             Spacer()
                                             if let w = a.weightPct { Chip(text: Formatters.percent(w)) }
                                         }
                                     }
                                     .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(RoundedRectangle(cornerRadius: 8).fill(.background))
-                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.hairline))
+                                    .background(RoundedRectangle(cornerRadius: Theme.corner(8)).fill(.background))
+                                    .overlay(RoundedRectangle(cornerRadius: Theme.corner(8)).strokeBorder(Theme.hairline))
                                     .onTapGesture { model.selectedAssignmentId = a.id }
                                     .onDrag { NSItemProvider(object: "\(a.id)" as NSString) }
                                 }
@@ -271,7 +271,7 @@ struct AssignmentBoard: View {
                         }
                     }
                     .padding(12).frame(width: 260).frame(maxHeight: .infinity, alignment: .top)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.subtleFill))
+                    .background(RoundedRectangle(cornerRadius: Theme.corner(10)).fill(Theme.fillSubtle))
                     .onDrop(of: [.text], isTargeted: nil) { providers in
                         providers.first?.loadObject(ofClass: NSString.self) { s, _ in
                             guard let s = s as? String, let id = Int(s) else { return }
@@ -336,12 +336,12 @@ struct AssignmentDetail: View {
                 if let w = assignment.weightPct {
                     let earned = assignment.status == .graded ? assignment.scorePct.map { $0 / 100 * w } : nil
                     Text(earned.map { String(format: "Earned %.1f of %g points of your final grade.", $0, w) } ?? "Worth \(String(format: "%g", w)) points of your final grade.")
-                        .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                        .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 }
                 TextField("Notes", text: Binding(get: { assignment.description ?? "" }, set: { assignment.description = $0.isEmpty ? nil : $0 }), axis: .vertical)
                     .lineLimit(3...10).textFieldStyle(.roundedBorder)
                 if let loc = assignment.sourceLocator, let mid = assignment.sourceMaterialId, let m = model.store.material(mid) {
-                    Label("From \(m.title), \(loc)", systemImage: "doc.text").font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    Label("From \(m.title), \(loc)", systemImage: "doc.text").font(.stSmall).foregroundStyle(Theme.textSecondary)
                 }
                 if let u = assignment.url, let url = URL(string: u) {
                     Link(destination: url) { Label("Open in Moodle", systemImage: "arrow.up.right.square") }.font(.stSmall)
@@ -351,7 +351,7 @@ struct AssignmentDetail: View {
                     SectionHeader(title: "Study blocks")
                     ForEach(blocks) { b in
                         HStack { Text(Formatters.dayTime(b.plannedStart, tz: model.tz)).monospacedDigit(); Spacer(); Text("\(b.plannedMinutes) min · \(b.status)") }
-                            .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                            .font(.stSmall).foregroundStyle(Theme.textSecondary)
                     }
                 }
                 HStack {

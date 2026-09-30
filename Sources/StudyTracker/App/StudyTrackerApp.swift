@@ -11,7 +11,7 @@ struct StudyTrackerApp: App {
         Window("Study Tracker", id: "main") {
             Group {
                 if let model {
-                    RootView().environment(model)
+                    RootView().environment(model).themed()
                 } else {
                     Text(AppDelegate.openError ?? "The database could not be opened.").padding(40)
                 }
@@ -57,7 +57,7 @@ struct StudyTrackerApp: App {
         }
 
         MenuBarExtra {
-            if let model { MenuBarView().environment(model) }
+            if let model { MenuBarView().environment(model).themed() }
         } label: {
             Image(systemName: "brain")
         }
@@ -188,14 +188,14 @@ struct Sidebar: View {
             if let run = model.claudeRun {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Claude: \(run.label)").font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(2)
+                    Text("Claude: \(run.label)").font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     Spacer()
                 }.padding(.horizontal, 14).padding(.vertical, 8)
             }
             if let p = model.progress {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(p).font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(2)
+                    Text(p).font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     Spacer()
                 }.padding(.horizontal, 14).padding(.vertical, 8)
             }
@@ -204,7 +204,7 @@ struct Sidebar: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(model.sidebarItem == nil ? Theme.subtleFill : .clear)
+            .background(model.sidebarItem == nil ? Theme.fillSubtle : Theme.clear)
         }
     }
 }
@@ -214,22 +214,22 @@ struct ToastHost: View {
     var body: some View {
         if let t = model.toast {
             HStack(spacing: 12) {
-                if t.isError { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.accent) }
+                if t.isError { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attention) }
                 Text(t.message).font(.stBody).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 if t.undo != nil {
                     Button("Undo") { model.performUndo() }.buttonStyle(.borderless).fontWeight(.semibold)
                 }
-                Button { model.toast = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).foregroundStyle(Theme.secondaryText)
+                Button { model.toast = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).foregroundStyle(Theme.textSecondary)
                     .accessibilityLabel("Dismiss")
             }
             .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.hairline))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.corner(10)))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner(10)).strokeBorder(Theme.hairline))
             .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
             .frame(maxWidth: 640)
             .padding(.bottom, 20)
             .transition(.move(edge: .bottom).combined(with: .opacity))
-            .animation(.easeOut(duration: 0.15), value: t.id)
+            .animation(.easeOut(duration: Theme.motionFast), value: t.id)
         }
     }
 }

@@ -43,10 +43,10 @@ struct LectureStudy: View {
                         CourseDot(color: m.courseId.flatMap { courses[$0]?.color })
                         VStack(alignment: .leading, spacing: 1) {
                             Text(m.title).font(.stBody).lineLimit(1)
-                            Text(m.courseId.flatMap { courses[$0]?.displayName } ?? "").font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                            Text(m.courseId.flatMap { courses[$0]?.displayName } ?? "").font(.stSmall).foregroundStyle(Theme.textTertiary)
                         }
                         Spacer()
-                        if m.processedAt != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.secondaryText).font(.system(size: 11)).accessibilityLabel("Processed") }
+                        if m.processedAt != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.textSecondary).font(.system(size: 11)).accessibilityLabel("Processed") }
                     }.tag(m.id)
                 }
             }
@@ -85,12 +85,12 @@ struct StudyFlow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(m.title).font(.stHeading)
                 Text([course?.name, m.processedAt.map { "processed \(RelativeTime.describe($0))" }].compactMap { $0 }.joined(separator: " · "))
-                    .font(.stBody).foregroundStyle(Theme.secondaryText)
+                    .font(.stBody).foregroundStyle(Theme.textSecondary)
             }
             if !concepts.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack { Text("Concepts recalled").font(.stSmallStrong); Spacer(); Text("\(Int(recalled * Double(concepts.count))) of \(concepts.count)").font(.stSmall).monospacedDigit() }
-                    ProgressView(value: recalled).tint(Theme.courseColor(course?.color))
+                    ProgressView(value: recalled).tint(Theme.course(course?.color))
                 }
             }
             HStack(alignment: .top, spacing: 12) {
@@ -125,9 +125,9 @@ struct StudyFlow: View {
                     ForEach(sessions.prefix(8)) { s in
                         HStack(alignment: .top) {
                             Text(s.kind.capitalized).font(.stSmallStrong).frame(width: 90, alignment: .leading)
-                            Text(s.summary ?? "").font(.stSmall).foregroundStyle(Theme.secondaryText).lineLimit(3)
+                            Text(s.summary ?? "").font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(3)
                             Spacer()
-                            Text(Formatters.day(s.startedAt, tz: model.tz)).font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                            Text(Formatters.day(s.startedAt, tz: model.tz)).font(.stSmall).foregroundStyle(Theme.textTertiary)
                         }
                     }
                 }
@@ -162,18 +162,18 @@ struct StepCard<Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Text("\(n)").font(.stSmallStrong).frame(width: 20, height: 20).background(Circle().fill(Theme.subtleFill))
+                Text("\(n)").font(.stSmallStrong).frame(width: 20, height: 20).background(Circle().fill(Theme.fillSubtle))
                 Text(title).font(.stBodyStrong)
                 Spacer()
-                if done { Image(systemName: "checkmark").font(.stSmallStrong).foregroundStyle(Theme.secondaryText).accessibilityLabel("Done") }
+                if done { Image(systemName: "checkmark").font(.stSmallStrong).foregroundStyle(Theme.textSecondary).accessibilityLabel("Done") }
             }
-            Text(detail).font(.stSmall).foregroundStyle(Theme.secondaryText).fixedSize(horizontal: false, vertical: true)
+            Text(detail).font(.stSmall).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 4)
             actions()
         }
         .padding(14).frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.hairline))
+        .background(RoundedRectangle(cornerRadius: Theme.radiusCard).fill(Theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).strokeBorder(Theme.hairline))
     }
 }
 
@@ -207,7 +207,7 @@ struct ReviewView: View {
             HStack {
                 Text(session.finished ? "Session complete" : "Review").font(.stHeading)
                 Spacer()
-                if !session.finished { Text("\(session.index + 1) of \(session.cards.count)").font(.stBody).monospacedDigit().foregroundStyle(Theme.secondaryText) }
+                if !session.finished { Text("\(session.index + 1) of \(session.cards.count)").font(.stBody).monospacedDigit().foregroundStyle(Theme.textSecondary) }
                 Button("Close") { finish(); dismiss() }.keyboardShortcut(.cancelAction)
             }
             ProgressView(value: Double(session.index), total: Double(max(session.cards.count, 1))).tint(.primary)
@@ -219,12 +219,12 @@ struct ReviewView: View {
     @ViewBuilder func cardView(_ card: Card) -> some View {
         let courses = model.store.courseMap()
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 6) { CourseDot(color: courses[card.courseId]?.color); Text(courses[card.courseId]?.displayName ?? "").font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+            HStack(spacing: 6) { CourseDot(color: courses[card.courseId]?.color); Text(courses[card.courseId]?.displayName ?? "").font(.stSmall).foregroundStyle(Theme.textTertiary) }
             Text(card.front).font(.system(size: 22, weight: .medium)).fixedSize(horizontal: false, vertical: true)
             if session.revealed {
                 Divider()
                 Text(card.back).font(.system(size: 18)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                if let l = card.sourceLocators { Text(l).font(.stSmall).foregroundStyle(Theme.tertiaryText) }
+                if let l = card.sourceLocators { Text(l).font(.stSmall).foregroundStyle(Theme.textTertiary) }
             }
             Spacer()
             if session.revealed {
@@ -242,11 +242,11 @@ struct ReviewView: View {
                         .accessibilityLabel("\(r.label), next review in \(FSRS.formatInterval(preview[r]!.interval))")
                     }
                 }
-                Text("Keys 1–4 rate your own recall.").font(.stSmall).foregroundStyle(Theme.tertiaryText).frame(maxWidth: .infinity)
+                Text("Keys 1–4 rate your own recall.").font(.stSmall).foregroundStyle(Theme.textTertiary).frame(maxWidth: .infinity)
             } else {
                 Button { session.revealed = true } label: { Text("Show answer").frame(maxWidth: .infinity) }
                     .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.space, modifiers: [])
-                Text("Try to answer first. Space reveals.").font(.stSmall).foregroundStyle(Theme.tertiaryText).frame(maxWidth: .infinity)
+                Text("Try to answer first. Space reveals.").font(.stSmall).foregroundStyle(Theme.textTertiary).frame(maxWidth: .infinity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -258,7 +258,7 @@ struct ReviewView: View {
         return VStack(spacing: 14) {
             Spacer()
             Text("You recalled \(recalled) of \(session.ratings.count).").font(.stTitle)
-            Text("\(session.longer) card\(session.longer == 1 ? "" : "s") moved to longer intervals.").font(.stBody).foregroundStyle(Theme.secondaryText)
+            Text("\(session.longer) card\(session.longer == 1 ? "" : "s") moved to longer intervals.").font(.stBody).foregroundStyle(Theme.textSecondary)
             Spacer()
             HStack {
                 let more = model.store.dueCount()
@@ -315,17 +315,17 @@ struct HandwritingSheet: View {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
-            Text(m?.title ?? "").font(.stBody).foregroundStyle(Theme.secondaryText)
+            Text(m?.title ?? "").font(.stBody).foregroundStyle(Theme.textSecondary)
             if let c = capture {
                 let cov = JSON.parse(c.coverageJson) as? [String: Any] ?? [:]
                 let covered = cov["covered"] as? [String] ?? []
                 let missing = cov["missing"] as? [String] ?? []
                 Text("Your notes mention \(covered.count) of \(covered.count + missing.count) concepts.").font(.stBodyStrong)
                 if !missing.isEmpty {
-                    Text("Not found in your notes: " + missing.joined(separator: ", ")).font(.stBody).foregroundStyle(Theme.secondaryText)
+                    Text("Not found in your notes: " + missing.joined(separator: ", ")).font(.stBody).foregroundStyle(Theme.textSecondary)
                 }
                 Text("This quick check only looks for concept names. Claude can read the photo and tell you what's right, partial or wrong.")
-                    .font(.stSmall).foregroundStyle(Theme.tertiaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textTertiary)
                 HStack {
                     Button("Get Claude's review") {
                         if model.claude.findCLI() != nil { model.runWithClaude("review_handwriting", ["material_id": "\(materialId)"], label: "reviewing your notes") }
@@ -339,7 +339,7 @@ struct HandwritingSheet: View {
                 ContinuityDropZone(working: working) { url in ingest(url) }
                     .frame(height: 220)
                 Text("Photograph your sheet with your iPhone: right-click the box and choose Import from iPhone → Take Photo. Or drop a photo, or choose a file.")
-                    .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 Button("Choose photo…") {
                     let p = NSOpenPanel()
                     p.allowedContentTypes = [.image]
@@ -435,7 +435,7 @@ struct InsightsView: View {
         let o = model.store.outcomes()
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Is this working? These measure outcomes, not activity.").font(.stBody).foregroundStyle(Theme.secondaryText)
+                Text("Is this working? These measure outcomes, not activity.").font(.stBody).foregroundStyle(Theme.textSecondary)
                 HStack(spacing: 12) {
                     stat("On-time rate", o.onTimeRate.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", "\(o.missedDeadlines.count) missed this term")
                     stat("Card retention", o.retention30d.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", "\(o.reviews30d) reviews in 30 days")
@@ -445,12 +445,12 @@ struct InsightsView: View {
                     SectionHeader(title: "Study minutes per week")
                     if o.minutesByWeek.allSatisfy({ $0.minutes == 0 }) {
                         Text("No study time logged yet. Reviews, Claude sessions and study blocks you mark done count here.")
-                            .font(.stSmall).foregroundStyle(Theme.secondaryText)
+                            .font(.stSmall).foregroundStyle(Theme.textSecondary)
                     }
                     Chart(o.minutesByWeek, id: \.weekStart) { w in
                         BarMark(x: .value("Week", w.weekStart.at(LocalTime(hour: 12, minute: 0), tz: model.tz), unit: .weekOfYear),
                                 y: .value("Minutes", w.minutes))
-                        .foregroundStyle(Color.primary.opacity(0.7))
+                        .foregroundStyle(Theme.textSecondary)
                     }
                     .frame(height: 160)
                     .accessibilityLabel("Study minutes for the last eight weeks")
@@ -463,10 +463,10 @@ struct InsightsView: View {
                                 CourseDot(color: g.course.color)
                                 Text(g.course.displayName).font(.stBodyStrong).frame(width: 90, alignment: .leading)
                                 Text(g.summary.currentOnScale.map { g.course.gradeScale.format($0) } ?? "—").monospacedDigit()
-                                Text(g.course.targetGrade.map { "target \(g.course.gradeScale.format($0))" } ?? "").foregroundStyle(Theme.secondaryText)
+                                Text(g.course.targetGrade.map { "target \(g.course.gradeScale.format($0))" } ?? "").foregroundStyle(Theme.textSecondary)
                                 Spacer()
                                 Text(g.summary.headline).font(.stSmall)
-                                    .foregroundStyle(g.summary.state == .unreachable || g.summary.state == .componentFailed ? Theme.accent : Theme.secondaryText)
+                                    .foregroundStyle(g.summary.state == .unreachable || g.summary.state == .componentFailed ? Theme.attention : Theme.textSecondary)
                             }.font(.stBody)
                         }
                     }
@@ -478,7 +478,7 @@ struct InsightsView: View {
                             HStack {
                                 Text(w.concept.name).font(.stBody)
                                 Spacer()
-                                Text("\(w.count)×").font(.stSmall).monospacedDigit().foregroundStyle(Theme.secondaryText)
+                                Text("\(w.count)×").font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary)
                                 Button("Explain it") { model.copyPrompt("feynman_check", ["concept_id": "\(w.concept.id)"]); model.openClaude() }.buttonStyle(.borderless).font(.stSmall)
                             }
                         }
@@ -489,7 +489,7 @@ struct InsightsView: View {
                         SectionHeader(title: "Techniques used")
                         HStack(spacing: 16) {
                             ForEach(o.sessionsByKind.sorted { $0.value > $1.value }, id: \.key) { k, v in
-                                VStack { Text("\(v)").font(.stHeading).monospacedDigit(); Text(k.capitalized).font(.stSmall).foregroundStyle(Theme.secondaryText) }
+                                VStack { Text("\(v)").font(.stHeading).monospacedDigit(); Text(k.capitalized).font(.stSmall).foregroundStyle(Theme.textSecondary) }
                             }
                         }
                     }
@@ -501,9 +501,9 @@ struct InsightsView: View {
 
     func stat(_ title: String, _ value: String, _ sub: String) -> some View {
         Panel {
-            Text(title).font(.stSmall).foregroundStyle(Theme.secondaryText)
+            Text(title).font(.stSmall).foregroundStyle(Theme.textSecondary)
             Text(value).font(.stTitle).monospacedDigit()
-            Text(sub).font(.stSmall).foregroundStyle(Theme.tertiaryText)
+            Text(sub).font(.stSmall).foregroundStyle(Theme.textTertiary)
         }
     }
 }
