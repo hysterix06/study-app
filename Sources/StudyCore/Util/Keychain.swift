@@ -3,7 +3,8 @@ import Security
 
 /// Secrets (calendar feed URLs, Moodle token) live in the macOS Keychain, never in the database or logs.
 public enum Keychain {
-    public static let service = "com.studytracker.app"
+    /// STUDY_KEYCHAIN_SERVICE keeps development runs (screenshots, a second copy) away from the real secrets.
+    public static let service = ProcessInfo.processInfo.environment["STUDY_KEYCHAIN_SERVICE"] ?? "com.studytracker.app"
 
     public static func set(_ value: String, account: String) {
         let data = Data(value.utf8)

@@ -26,7 +26,7 @@ The script needs Xcode (Swift 6) and macOS 15 or later. It produces:
 ## First run
 
 1. **Timetable.** Settings → Calendars → *Import .ics file* (Outlook: File → Save Calendar), or *Subscribe to a calendar link*. Add work shifts as **busy time** so the planner works around them.
-2. **Moodle (optional, recommended).** Settings → Moodle. Sign in once, or paste the "Moodle mobile web service" security key if your school uses single sign-on. Deadlines, submission status, grades and new course files then arrive on their own.
+2. **Moodle (optional, recommended).** Settings → Moodle. Type your school's Moodle address; the app checks it and shows the school's name and sign-in button (e.g. *Connect with Microsoft Office 365*). You sign in on the school's own page and the connection is made for you. A username and password or a pasted "Moodle mobile web service" key are under *Other ways to connect*. Deadlines, submission status, grades and new course files then arrive on their own.
 3. **Claude.** Settings → Claude → **Connect to Claude Desktop**, then quit and reopen Claude Desktop. If Claude Code is installed (for example through the VS Code extension), *Process* runs in the background with no copy and paste.
 4. **Lectures.** Drop PowerPoint, PDF or Word files onto the window, or into `~/StudyTracker/Inbox`. Confirm the course in the Inbox.
 

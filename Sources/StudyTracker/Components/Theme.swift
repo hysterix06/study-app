@@ -5,6 +5,10 @@ import StudyCore
 /// muted course colors used only as dots and thin bars.
 enum Theme {
     static let accent = Color(red: 0.86, green: 0.26, blue: 0.16)     // urgency only
+    // A working connection, a finished step. Darker than system green in light mode so it can be read as text.
+    static let success = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .systemGreen : NSColor(red: 0.11, green: 0.54, blue: 0.24, alpha: 1)
+    })
     static let hairline = Color.primary.opacity(0.08)
     static let subtleFill = Color.primary.opacity(0.035)
     static let cardFill = Color.primary.opacity(0.028)
@@ -103,15 +107,21 @@ struct EmptyState: View {
 
 /// Primary button: large, neutral (black on light, white on dark), consistent position (Fitts).
 struct PrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.stBodyStrong)
-            .lineLimit(1).minimumScaleFactor(0.85)
-            .padding(.horizontal, 16).frame(minHeight: 36)
-            .foregroundStyle(Color(nsColor: .textBackgroundColor))
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary))
-            .opacity(configuration.isPressed ? 0.8 : 1)
-            .contentShape(Rectangle())
+    func makeBody(configuration: Configuration) -> some View { StyledLabel(configuration: configuration) }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) var isEnabled
+        var body: some View {
+            configuration.label
+                .font(.stBodyStrong)
+                .lineLimit(1).minimumScaleFactor(0.85)
+                .padding(.horizontal, 16).frame(minHeight: 36)
+                .foregroundStyle(Color(nsColor: .textBackgroundColor))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary))
+                .opacity(!isEnabled ? 0.3 : configuration.isPressed ? 0.8 : 1)
+                .contentShape(Rectangle())
+        }
     }
 }
 

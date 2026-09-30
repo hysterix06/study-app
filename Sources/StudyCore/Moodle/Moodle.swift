@@ -11,7 +11,9 @@ public struct MoodleClient {
 
     public struct MoodleError: Error, CustomStringConvertible {
         public let message: String
-        public init(message: String) { self.message = message }
+        /// Moodle's own error code, e.g. "invalidtoken" once the school ends the connection.
+        public var code: String?
+        public init(message: String, code: String? = nil) { self.message = message; self.code = code }
         public var description: String { message }
     }
 
@@ -36,7 +38,60 @@ public struct MoodleClient {
         }
         if let token = obj["token"] as? String { return token }
         let msg = obj["error"] as? String ?? "Moodle refused the sign-in."
-        throw MoodleError(message: msg + " If your school uses single sign-on, paste a token from Moodle → Preferences → Security keys instead.")
+        throw MoodleError(message: msg + " If your school signs in with Microsoft 365 or another single sign-on, choose \"Microsoft 365 / SSO\" instead.")
+    }
+
+    /// What a site says about itself before anyone signs in: the same call the official app makes first.
+    public static func siteProfile(site: URL, session: URLSession = .shared) async throws -> MoodleSiteProfile {
+        var comps = URLComponents(url: site.appendingPathComponent("lib/ajax/service-nologin.php"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "info", value: "tool_mobile_get_public_config")]
+        var req = URLRequest(url: comps.url!, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data(#"[{"index":0,"methodname":"tool_mobile_get_public_config","args":{}}]"#.utf8)
+        let (data, _) = try await session.data(for: req)
+        guard let profile = MoodleSiteProfile(publicConfig: data, site: site) else {
+            throw MoodleError(message: "No Moodle site answered at this address.")
+        }
+        return profile
+    }
+
+    /// The page the official Moodle app opens for single sign-on (Microsoft 365, Google, SAML…). Once the school's
+    /// sign-in finishes, Moodle redirects to `moodlemobile://token=<base64>`, which `token(fromLaunchReply:)` reads.
+    public static func launchURL(site: URL, passport: String) -> URL {
+        var comps = URLComponents(url: site.appendingPathComponent("admin/tool/mobile/launch.php"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "service", value: "moodle_mobile_app"),
+                            URLQueryItem(name: "passport", value: passport),
+                            URLQueryItem(name: "urlscheme", value: "moodlemobile")]
+        return comps.url!
+    }
+
+    /// Whether a page is part of signing in: another host (Microsoft…), or Moodle's login, auth plugin, MFA or launch
+    /// pages. Any other page on the site is where Moodle sends you once sign-in has finished.
+    public static func isSignInPage(_ url: URL, site: URL) -> Bool {
+        guard url.host?.lowercased() == site.host?.lowercased() else { return true }
+        var path = url.path
+        if !site.path.isEmpty, path.hasPrefix(site.path) { path = String(path.dropFirst(site.path.count)) }
+        return ["/login", "/auth", "/admin/tool/mfa", "/admin/tool/mobile/launch.php"].contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// Reads the web service token from the launch reply. Its payload is base64 of `signature:::token[:::privatetoken]`.
+    /// The scheme isn't checked: a school with a branded app can force its own scheme in place of `moodlemobile`.
+    public static func token(fromLaunchReply url: URL) throws -> String {
+        let text = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        guard let start = text.range(of: "token=") else { throw MoodleError(message: "Moodle's sign-in reply had no token.") }
+        let alphabet = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+        var b64 = String(text[start.upperBound...].unicodeScalars.prefix { alphabet.contains($0) })
+        b64 = b64.trimmingCharacters(in: CharacterSet(charactersIn: "="))
+        b64 += String(repeating: "=", count: (4 - b64.count % 4) % 4)
+        guard let data = Data(base64Encoded: b64), let payload = String(data: data, encoding: .utf8) else {
+            throw MoodleError(message: "Moodle's sign-in reply could not be read.")
+        }
+        let parts = payload.components(separatedBy: ":::")
+        guard parts.count >= 2, !parts[1].isEmpty, parts[1].allSatisfy({ $0.isLetter || $0.isNumber }) else {
+            throw MoodleError(message: "Moodle's sign-in reply had no token.")
+        }
+        return parts[1]
     }
 
     static func form(_ params: [String: Any]) -> String {
@@ -70,7 +125,7 @@ public struct MoodleClient {
         let obj = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
         if let d = obj as? [String: Any], d["exception"] != nil {
             let code = d["errorcode"] as? String ?? ""
-            if code == "invalidtoken" { throw MoodleError(message: "The Moodle token is no longer valid. Sign in again in Settings.") }
+            if code == "invalidtoken" { throw MoodleError(message: "The Moodle token is no longer valid. Sign in again in Settings.", code: code) }
             throw MoodleError(message: (d["message"] as? String ?? "Moodle error") + " (\(function))")
         }
         return obj
@@ -86,6 +141,44 @@ public struct MoodleClient {
         if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw MoodleError(message: "Download failed (\(http.statusCode)).") }
         return data
     }
+}
+
+/// A site's name, logo and sign-in button, from `tool_mobile_get_public_config`.
+public struct MoodleSiteProfile: Equatable {
+    /// The site's own address (wwwroot), which may differ from what was typed.
+    public var site: URL
+    public var name: String
+    public var logoURL: URL?
+    /// The school's single sign-on button (e.g. "Microsoft Office 365") when there is exactly one.
+    public var providerName: String?
+    /// Where that button leads. Only kept when it is on the site itself.
+    public var providerURL: URL?
+    /// Whether the school lets the Moodle app (and so Study Tracker) connect at all.
+    public var appAccess: Bool
+
+    public init?(publicConfig data: Data, site: URL) {
+        guard let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], let first = arr.first,
+              (first["error"] as? Bool) != true, let d = first["data"] as? [String: Any] else { return nil }
+        func url(_ key: String) -> URL? { (d[key] as? String).flatMap { $0.isEmpty ? nil : URL(string: $0) } }
+        func on(_ key: String) -> Bool { (d[key] as? NSNumber)?.boolValue ?? true }
+        let root = url("httpswwwroot") ?? url("wwwroot") ?? site
+        let providers = d["identityproviders"] as? [[String: Any]] ?? []
+        let only = providers.count == 1 ? providers[0] : nil
+        self.site = root
+        name = MoodleSync.stripHTML(d["sitename"] as? String) ?? root.host ?? "Moodle"
+        logoURL = url("compactlogourl") ?? url("logourl")
+        providerName = only?["name"] as? String
+        providerURL = (only?["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.host?.lowercased() == root.host?.lowercased() ? $0 : nil }
+        appAccess = on("enablewebservices") && on("enablemobilewebservice")
+    }
+}
+
+/// What the connection has brought in so far.
+public struct MoodleStats: Equatable {
+    public var courses = 0
+    public var deadlines = 0
+    public var grades = 0
+    public var files = 0
 }
 
 public struct MoodleCourseInfo: Hashable {
@@ -118,6 +211,14 @@ public struct MoodleSyncReport {
 public enum MoodleSync {
     public static let tokenAccount = "moodle-token"
 
+    public static func stats(store: StudyStore) -> MoodleStats {
+        func count(_ sql: String) -> Int { (try? store.db.scalarInt(sql)) ?? 0 }
+        return MoodleStats(courses: count("SELECT count(*) FROM courses WHERE moodle_id IS NOT NULL AND archived = 0"),
+                           deadlines: count("SELECT count(*) FROM assignments WHERE source = 'moodle' AND dismissed = 0"),
+                           grades: count("SELECT count(*) FROM assignments WHERE source = 'moodle' AND dismissed = 0 AND status = 'graded'"),
+                           files: count("SELECT count(*) FROM materials WHERE external_uid LIKE 'moodle:%'"))
+    }
+
     static func stripHTML(_ s: String?) -> String? {
         guard let s, !s.isEmpty else { return nil }
         let noTags = s.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
@@ -132,10 +233,19 @@ public enum MoodleSync {
     /// Pulls deadlines, submission status, grades and new course files for linked courses.
     public static func run(store: StudyStore, client: MoodleClient, downloadFiles: Bool, autoConfirm: Bool, now: Date = Date()) async -> MoodleSyncReport {
         var report = MoodleSyncReport()
+        func finish() {
+            store.setSetting("moodle_last_sync", ISO.instant(now))
+            store.setSetting("moodle_last_status", report.summary)
+            store.audit("moodle_sync", detail: report.summary)
+        }
         do {
             guard let info = try await client.call("core_webservice_get_site_info") as? [String: Any], let userId = (info["userid"] as? NSNumber)?.intValue else {
                 report.errors.append("Could not read your Moodle profile."); return report
             }
+            // Who the connection belongs to, shown in Settings.
+            store.setBool("moodle_needs_signin", false)
+            store.setSetting("moodle_user_name", info["fullname"] as? String)
+            if let name = stripHTML(info["sitename"] as? String) { store.setSetting("moodle_site_name", name) }
             let list = try await client.call("core_enrol_get_users_courses", ["userid": userId]) as? [[String: Any]] ?? []
             report.courses = list.compactMap { c in
                 guard let id = (c["id"] as? NSNumber)?.intValue else { return nil }
@@ -155,7 +265,7 @@ public enum MoodleSync {
             }
             local = store.courses()
             let linked = Dictionary(uniqueKeysWithValues: local.compactMap { c in c.moodleId.map { ($0, c) } })
-            guard !linked.isEmpty else { return report }
+            guard !linked.isEmpty else { finish(); return report }
 
             // Assignments.
             let ids = Array(linked.keys)
@@ -259,11 +369,10 @@ public enum MoodleSync {
                     }
                 }
             }
-            store.setSetting("moodle_last_sync", ISO.instant(now))
-            store.setSetting("moodle_last_status", report.summary)
-            store.audit("moodle_sync", detail: report.summary)
+            finish()
         } catch {
             report.errors.append("\(error)")
+            if (error as? MoodleClient.MoodleError)?.code == "invalidtoken" { store.setBool("moodle_needs_signin", true) }
             store.setSetting("moodle_last_status", "Sync failed: \(error)")
         }
         return report

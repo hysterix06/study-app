@@ -201,33 +201,50 @@ final class CalendarSyncService {
 
 // MARK: - Moodle
 
+@Observable
 @MainActor
 final class MoodleService {
     unowned let model: AppModel
     var syncing = false
+    /// The latest sync, shown as the result of connecting.
+    var lastReport: MoodleSyncReport?
     init(model: AppModel) { self.model = model }
 
     var site: URL? { model.store.setting("moodle_url").flatMap(MoodleClient.normalizeSite) }
     var hasToken: Bool { Keychain.get(MoodleSync.tokenAccount) != nil }
+    var isConnected: Bool { model.store.boolSetting("moodle_enabled") && hasToken }
 
     func signIn(site: String, username: String, password: String) async throws {
         guard let url = MoodleClient.normalizeSite(site) else { throw MoodleClient.MoodleError(message: "Enter your school's Moodle address.") }
         let token = try await MoodleClient.requestToken(site: url, username: username, password: password)
-        Keychain.set(token, account: MoodleSync.tokenAccount)
-        model.store.setSetting("moodle_url", url.absoluteString)
-        model.store.setBool("moodle_enabled", true)
+        useToken(site: url.absoluteString, token: token, method: "password")
     }
 
-    func useToken(site: String, token: String) {
+    /// `method` is how the student signed in ("sso", "password" or "key"), so Settings can say what happened to the password.
+    func useToken(site: String, token: String, method: String = "key") {
         guard let url = MoodleClient.normalizeSite(site) else { return }
         Keychain.set(token.trimmingCharacters(in: .whitespacesAndNewlines), account: MoodleSync.tokenAccount)
         model.store.setSetting("moodle_url", url.absoluteString)
+        model.store.setSetting("moodle_auth_method", method)
+        model.store.setBool("moodle_needs_signin", false)
         model.store.setBool("moodle_enabled", true)
+        model.refresh()
+    }
+
+    /// Name, logo and sign-in button name, kept so Settings can show the school and label the reconnect button.
+    func remember(_ profile: MoodleSiteProfile) {
+        model.store.setSetting("moodle_site_name", profile.name)
+        model.store.setSetting("moodle_logo_url", profile.logoURL?.absoluteString)
+        model.store.setSetting("moodle_provider_name", profile.providerName)
     }
 
     func signOut() {
         Keychain.delete(MoodleSync.tokenAccount)
         model.store.setBool("moodle_enabled", false)
+        model.store.setBool("moodle_needs_signin", false)
+        model.store.setSetting("moodle_user_name", nil)
+        lastReport = nil
+        model.refresh()
     }
 
     func sync(silent: Bool) async {
@@ -238,6 +255,7 @@ final class MoodleService {
         let files = store.boolSetting("moodle_download_files", default: true)
         let confirm = store.boolSetting("moodle_auto_confirm", default: true)
         let report = await Task.detached { await MoodleSync.run(store: store, client: MoodleClient(site: site, token: token), downloadFiles: files, autoConfirm: confirm) }.value
+        lastReport = report
         syncing = false
         model.progress = nil
         model.refresh()

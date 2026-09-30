@@ -100,7 +100,7 @@ Cornell sheets are drawn directly with CoreText into a PDF: A4 or Letter, 15 mm 
 
 ## D15. Moodle
 
-Moodle is reached through its mobile web service (`login/token.php?service=moodle_mobile_app`, then `webservice/rest/server.php`). It is read-only, and the token lives in the Keychain; the password is used once and never stored. For single sign-on schools the student can paste the "Moodle mobile web service" security key instead.
+Moodle is reached through its mobile web service (`login/token.php?service=moodle_mobile_app`, then `webservice/rest/server.php`). It is read-only, and the token lives in the Keychain; the password is used once and never stored. For single sign-on schools (Microsoft 365 and others) the app does what the official app does: it opens `admin/tool/mobile/launch.php` in a web view with no stored cookies, lets the school's own sign-in run, and catches the `moodlemobile://token=<base64 of signature:::token[:::privatetoken]>` redirect. Sites set to log in within the app (`typeoflogin` 1, common with Microsoft 365 through `auth_oidc`) refuse the launch page with `pluginnotenabledorconfigured` unless the session has only just signed in, and the user agent doesn't change that. So on a refusal the web view opens the login page, and when sign-in finishes it swaps the redirect to the dashboard for the launch page before any site page can clear Moodle's "just logged in" flag. Pasting the "Moodle mobile web service" security key still works as a fallback.
 
 Functions used:
 - `core_webservice_get_site_info`, `core_enrol_get_users_courses`
