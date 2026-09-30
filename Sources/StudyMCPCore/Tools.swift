@@ -14,9 +14,18 @@ struct Tool {
     let write: Bool
     let handler: (Args, StudyStore) throws -> ToolOutput
 
+    /// Write tools accept an optional `job_id` so the app can tie the write to the Claude job that asked for it.
+    var inputSchema: [String: Any] {
+        guard write, var props = schema["properties"] as? [String: Any] else { return schema }
+        props["job_id"] = ["type": "integer", "description": "The job id from the prompt, if it gave one. Pass it on every save."]
+        var s = schema
+        s["properties"] = props
+        return s
+    }
+
     var definition: [String: Any] {
         [
-            "name": name, "title": title, "description": description, "inputSchema": schema,
+            "name": name, "title": title, "description": description, "inputSchema": inputSchema,
             "annotations": ["title": title, "readOnlyHint": !write, "destructiveHint": false, "idempotentHint": !write, "openWorldHint": false],
         ]
     }

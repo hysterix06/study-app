@@ -95,14 +95,12 @@ struct StudyFlow: View {
             }
             HStack(alignment: .top, spacing: 12) {
                 StepCard(n: 1, title: "Recall", detail: "Write what you remember before looking.", done: done("recall")) {
-                    Button("Copy prompt") { model.copyPrompt("recall_first", ["material_id": "\(m.id)"]); model.openClaude() }.buttonStyle(style(1))
+                    ClaudeButton(task: .recall) { model.jobs.run(.recall, material: m.id) }.buttonStyle(style(1))
                         .disabled(m.processedAt == nil).help(m.processedAt == nil ? "Process the lecture first so Claude can compare your recall" : "")
                 }
                 StepCard(n: 2, title: "Learn", detail: m.processedAt == nil ? "Claude reads the lecture and builds concepts, questions and your sheet." : "\(concepts.count) concepts, linked to their slides.", done: m.processedAt != nil) {
                     if m.processedAt == nil {
-                        Button(model.claude.findCLI() != nil && model.store.boolSetting("use_claude_code", default: true) ? "Process" : "Copy prompt") { model.process(materialId: m.id) }
-                            .buttonStyle(style(2)).disabled(model.claudeRun != nil)
-                        Button("Copy prompt instead") { model.copyPrompt("process_lecture", ["material_id": "\(m.id)"]) }.buttonStyle(.borderless).font(.stSmall)
+                        ClaudeButton(task: .process) { model.jobs.run(.process, material: m.id) }.buttonStyle(style(2))
                     } else if let c = course {
                         Button("Concepts") { model.openCourse(c.id, tab: .concepts) }.buttonStyle(style(2))
                     }
@@ -116,7 +114,7 @@ struct StudyFlow: View {
                 }
                 StepCard(n: 4, title: "Test", detail: "\(cardsForMaterial.count) cards from this lecture. Mixed with others for interleaving.", done: done("quiz") || done("review")) {
                     Button("Start review") { model.startReview(courseId: m.courseId) }.buttonStyle(style(4))
-                    Button("Copy quiz prompt") { model.copyPrompt("quiz_me", ["scope": "material", "id": "\(m.id)", "count": "8"]); model.openClaude() }.buttonStyle(.borderless).font(.stSmall)
+                    ClaudeButton(task: .quiz) { model.jobs.run(.quiz, material: m.id) }.buttonStyle(.borderless).font(.stSmall)
                 }
             }
             if !sessions.isEmpty {
@@ -327,9 +325,8 @@ struct HandwritingSheet: View {
                 Text("This quick check only looks for concept names. Claude can read the photo and tell you what's right, partial or wrong.")
                     .font(.stSmall).foregroundStyle(Theme.textTertiary)
                 HStack {
-                    Button("Get Claude's review") {
-                        if model.claude.findCLI() != nil { model.runWithClaude("review_handwriting", ["material_id": "\(materialId)"], label: "reviewing your notes") }
-                        else { model.copyPrompt("review_handwriting", ["material_id": "\(materialId)"]); model.openClaude() }
+                    ClaudeButton(task: .reviewNotes) {
+                        model.jobs.run(.reviewNotes, material: materialId)
                         dismiss()
                     }.buttonStyle(PrimaryButtonStyle())
                     Button("Show photo") { NSWorkspace.shared.open(model.store.paths.absolute(c.imagePath)) }.buttonStyle(QuietButtonStyle())
@@ -479,7 +476,7 @@ struct InsightsView: View {
                                 Text(w.concept.name).font(.stBody)
                                 Spacer()
                                 Text("\(w.count)×").font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary)
-                                Button("Explain it") { model.copyPrompt("feynman_check", ["concept_id": "\(w.concept.id)"]); model.openClaude() }.buttonStyle(.borderless).font(.stSmall)
+                                ClaudeButton(task: .explain) { model.jobs.run(.explain, concept: w.concept.id) }.buttonStyle(.borderless).font(.stSmall)
                             }
                         }
                     }

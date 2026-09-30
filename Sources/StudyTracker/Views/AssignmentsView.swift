@@ -358,7 +358,7 @@ struct AssignmentDetail: View {
                     Button("Save") { save() }.buttonStyle(PrimaryButtonStyle()).disabled(!dirty).keyboardShortcut("s")
                     Menu("More") {
                         Button("Plan study blocks") { model.planStudy(focusAssignment: assignment.id) }
-                        Button("Copy \"check draft against rubric\" prompt") { model.copyPrompt("check_draft", ["assignment_id": "\(assignment.id)"]) }
+                        Button(ClaudeTask.checkDraft.label) { model.jobs.run(.checkDraft, assignment: assignment.id) }
                         Divider()
                         Button("Delete", role: .destructive) {
                             let title = assignment.title

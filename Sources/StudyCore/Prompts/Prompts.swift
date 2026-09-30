@@ -215,6 +215,10 @@ public enum Prompts {
         default:
             throw RenderError.unknown(name)
         }
-        return studyRules + "\n\n" + body
+        var text = studyRules + "\n\n" + body
+        if let job = args["job_id"], !job.isEmpty {
+            text += "\n\nThis is Study Tracker job \(job). Pass job_id: \(job) to every Study Tracker tool that saves something."
+        }
+        return text
     }
 }

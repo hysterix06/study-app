@@ -124,7 +124,9 @@ final class ClaudeService {
 
     struct RunError: LocalizedError { var message: String; var errorDescription: String? { message } }
 
-    func runHeadless(cli: URL, prompt: String, store: StudyStore, timeout: TimeInterval = 20 * 60) async -> Result<String, Error> {
+    /// `onStart` hands back the process so a job can be canceled.
+    func runHeadless(cli: URL, prompt: String, store: StudyStore, timeout: TimeInterval = 20 * 60,
+                     onStart: @escaping (Process) -> Void = { _ in }) async -> Result<String, Error> {
         guard let mcp = mcpBinary else { return .failure(RunError(message: "The Study Tracker MCP server was not found in the app bundle")) }
         let config = JSON.string(["mcpServers": ["study-tracker": [
             "command": mcp.path, "args": [String](),
@@ -146,6 +148,7 @@ final class ClaudeService {
                 p.standardOutput = out; p.standardError = err
                 p.standardInput = FileHandle.nullDevice
                 do { try p.run() } catch { cont.resume(returning: .failure(error)); return }
+                onStart(p)
                 let deadline = DispatchTime.now() + timeout
                 DispatchQueue.global().asyncAfter(deadline: deadline) { if p.isRunning { p.terminate() } }
                 let data = out.fileHandleForReading.readDataToEndOfFile()

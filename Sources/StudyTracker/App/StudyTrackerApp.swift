@@ -126,6 +126,7 @@ struct RootView: View {
                     Button { model.goForward() } label: { Image(systemName: "chevron.right") }
                         .disabled(!model.canGoForward).help("Forward (⌘])")
                 }
+                ToolbarItem(placement: .primaryAction) { ActivityToolbarButton() }
             }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -185,13 +186,6 @@ struct Sidebar: View {
             }
             .listStyle(.sidebar)
             Divider()
-            if let run = model.claudeRun {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Claude: \(run.label)").font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(2)
-                    Spacer()
-                }.padding(.horizontal, 14).padding(.vertical, 8)
-            }
             if let p = model.progress {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -216,6 +210,9 @@ struct ToastHost: View {
             HStack(spacing: 12) {
                 if t.isError { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attention) }
                 Text(t.message).font(.stBody).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                if let link = t.link {
+                    Button(link.title) { model.toast = nil; model.go(link.route) }.buttonStyle(.borderless).fontWeight(.semibold)
+                }
                 if t.undo != nil {
                     Button("Undo") { model.performUndo() }.buttonStyle(.borderless).fontWeight(.semibold)
                 }

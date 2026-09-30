@@ -325,7 +325,6 @@ struct ClaudeSettings: View {
     var body: some View {
         let svc = model.claude
         let state = svc.connectionState()
-        let lastMCP = model.store.recentAudit(actor: "mcp", limit: 5)
         let cli = svc.findCLI()
         VStack(alignment: .leading, spacing: 16) {
             Text("Claude reads your lectures through a small local server (MCP) and saves concepts, questions and sheets back here. The app works fully without it.")
@@ -361,31 +360,25 @@ struct ClaudeSettings: View {
                 row("Database", model.store.paths.database.path)
                 row("MCP server", svc.mcpBinary?.path ?? "Not found (build the app bundle)")
                 row("Schema version", "database \(model.store.db.userVersion) · server expects \(Migrations.currentVersion) · \(model.store.db.userVersion == Migrations.currentVersion ? "match" : "MISMATCH")")
-                row("Last Claude activity", lastMCP.first.map { "\($0.action) · \(RelativeTime.describe($0.at))" } ?? "none yet")
-                if !lastMCP.isEmpty {
-                    ForEach(Array(lastMCP.dropFirst().enumerated()), id: \.offset) { _, e in
-                        Text("\(e.action) · \(RelativeTime.describe(e.at))").font(.stSmall).foregroundStyle(Theme.textTertiary).padding(.leading, 170)
-                    }
-                }
             }
             Panel {
-                SectionHeader(title: "Claude Code (optional, uses your Claude plan)")
-                row("Command-line tool", cli?.path ?? "Not found")
-                Text("With Claude Code installed, Process runs in the background and lectures can be processed as soon as they arrive, with no copy and paste. Conversations like recall and quizzes still happen in Claude Desktop.")
+                SectionHeader(title: "Run mode")
+                Picker("", selection: Binding(get: { model.jobs.runMode }, set: { model.jobs.runMode = $0 })) {
+                    Text("Automatic").tag(JobMode.automatic)
+                    Text("Claude Desktop").tag(JobMode.desktop)
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
+                Text(model.jobs.runMode == .automatic
+                     ? "Tasks run in the background with Claude Code (your own Claude plan), one at a time. Conversations like recall, quizzes and draft checks still open in Claude Desktop."
+                     : "Every task copies its prompt and opens Claude Desktop. The job finishes when Claude saves its results.")
                     .font(.stSmall).foregroundStyle(Theme.textSecondary)
-                Toggle("Use Claude Code for Process buttons", isOn: boolBinding(model, "use_claude_code", default: true)).disabled(cli == nil)
+                row("Claude Code", cli?.path ?? "Not found. Automatic tasks go to Claude Desktop until it's installed.")
                 Toggle("Process new lectures automatically once filed", isOn: boolBinding(model, "auto_process")).disabled(cli == nil)
-                Button("Look again") { svc.resetCLICache(); model.refresh() }.buttonStyle(.borderless).font(.stSmall)
-            }
-            Panel {
-                SectionHeader(title: "Prompts")
-                Text("Every Copy prompt button produces self-contained text, so it works even if Claude Desktop doesn't show MCP prompts. In Claude Desktop you can also pick them from the + menu.")
-                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 HStack {
-                    Button("Copy weekly plan prompt") { model.copyPrompt("weekly_plan", [:]) }.buttonStyle(QuietButtonStyle())
-                    Button("Open Claude") { model.openClaude() }.buttonStyle(QuietButtonStyle())
+                    Button("Look for Claude Code again") { svc.resetCLICache(); model.refresh() }.buttonStyle(.borderless).font(.stSmall)
+                    Button(ClaudeTask.weeklyPlan.label) { model.jobs.run(.weeklyPlan) }.buttonStyle(QuietButtonStyle())
                 }
             }
+            Panel { ActivityList(limit: 100) }
         }
     }
 

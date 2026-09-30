@@ -37,15 +37,15 @@ struct InboxScreen: View {
                     }
                 }
                 if !ready.isEmpty {
-                    section("Ready to process", count: ready.count, trailing: ready.count > 1 && model.claude.findCLI() != nil ? AnyView(Button("Process all with Claude") {
-                        model.store.setBool("auto_process", true); model.autoProcessReady()
+                    section("Ready to process", count: ready.count, trailing: ready.count > 1 && model.jobs.mode(for: .process) == .automatic ? AnyView(Button("Process all with Claude") {
+                        for m in ready { model.jobs.run(.process, material: m.id) }
                     }.buttonStyle(.borderless).font(.stSmall)) : nil) {
-                        ForEach(ready) { m in ReadyRow(material: m, prompt: "process_lecture") }
+                        ForEach(ready) { m in ReadyRow(material: m, task: .process) }
                     }
                 }
                 if !otherReady.isEmpty {
                     section("Syllabi, briefs and past exams", count: otherReady.count) {
-                        ForEach(otherReady) { m in ReadyRow(material: m, prompt: m.role == .pastExam ? "exam_patterns" : "extract_deadlines") }
+                        ForEach(otherReady) { m in ReadyRow(material: m, task: m.role == .pastExam ? .examPatterns : .extractDeadlines) }
                     }
                 }
                 if !proposed.isEmpty {
@@ -168,7 +168,7 @@ struct FileToFileRow: View {
                 Button("Confirm") {
                     guard let courseId else { return }
                     model.run("Filed \(m.title).") { try model.store.confirmMaterial(m.id, courseId: courseId, role: role); return nil }
-                    if model.store.boolSetting("auto_process") && role == .lecture { model.process(materialId: m.id) }
+                    if model.store.boolSetting("auto_process") && role == .lecture { model.jobs.run(.process, material: m.id) }
                 }
                 .buttonStyle(PrimaryButtonStyle()).disabled(courseId == nil).keyboardShortcut(.defaultAction)
             } else {
@@ -183,11 +183,10 @@ struct FileToFileRow: View {
 struct ReadyRow: View {
     @Environment(AppModel.self) var model
     let m: Material
-    let prompt: String
-    init(material: Material, prompt: String) { m = material; self.prompt = prompt }
+    let task: ClaudeTask
+    init(material: Material, task: ClaudeTask) { m = material; self.task = task }
     var body: some View {
         let course = m.courseId.flatMap { model.store.course($0) }
-        let cli = model.claude.findCLI() != nil && model.store.boolSetting("use_claude_code", default: true)
         HStack(spacing: 10) {
             CourseDot(color: course?.color)
             VStack(alignment: .leading, spacing: 2) {
@@ -197,12 +196,7 @@ struct ReadyRow: View {
             Spacer()
             Button("Skip") { model.run("Skipped \(m.title). It stays in its course.") { try model.store.skipMaterialUndoable(m.id) } }
                 .buttonStyle(QuietButtonStyle()).help("Remove from the Inbox without processing. The file stays in its course.")
-            if prompt == "process_lecture" && cli {
-                Button("Copy prompt") { model.copyPrompt(prompt, ["material_id": "\(m.id)"]) }.buttonStyle(QuietButtonStyle())
-                Button("Process with Claude") { model.process(materialId: m.id) }.buttonStyle(PrimaryButtonStyle()).disabled(model.claudeRun != nil)
-            } else {
-                Button("Copy prompt") { model.copyPrompt(prompt, ["material_id": "\(m.id)"]); model.openClaude() }.buttonStyle(PrimaryButtonStyle())
-            }
+            ClaudeButton(task: task) { model.jobs.run(task, material: m.id) }.buttonStyle(PrimaryButtonStyle())
         }
         .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
     }

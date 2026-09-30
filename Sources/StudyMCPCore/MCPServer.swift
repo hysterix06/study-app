@@ -117,9 +117,18 @@ public final class MCPServer {
             wroteThisProcess = true
         }
         let start = Date()
+        var args = args
+        let jobId = (args.removeValue(forKey: "job_id")).flatMap { ($0 as? NSNumber)?.intValue ?? Int("\($0)") }
         do {
             let output = try tool.handler(Args(args), store)
             log.write("\(name) ok \(Int(Date().timeIntervalSince(start) * 1000))ms")
+            if tool.write, let jobId {
+                var count = 1
+                if case .json(let value) = output, let d = value as? [String: Any] {
+                    count = ((d["created"] as? Int) ?? 0) + ((d["updated"] as? Int) ?? 0)
+                }
+                _ = try? store.attachJobResult(jobId, tool: name, args: args, count: count)
+            }
             switch output {
             case .json(let value):
                 return ["content": [["type": "text", "text": JSON.string(value, round: true)]], "isError": false]

@@ -28,6 +28,8 @@ struct Toast: Identifiable {
     var message: String
     var undo: UndoSnapshot?
     var isError = false
+    /// Where the result lives when it's on another screen ("View", "Open").
+    var link: (title: String, route: Route)?
 }
 
 @MainActor
@@ -49,9 +51,12 @@ final class AppModel {
     var progress: String?
     var icsPreview: ICSPreview?
     var handwritingMaterialId: Int?
-    var claudeRun: ClaudeRunState?
+    /// The Activity panel (toolbar), optionally scrolled to one job.
+    var showActivity = false
+    var activityJobId: Int?
 
     let claude = ClaudeService()
+    var jobs: ClaudeJobRunner!
     var notifications: NotificationService!
     var calendarSync: CalendarSyncService!
     var moodle: MoodleService!
@@ -66,6 +71,7 @@ final class AppModel {
         notifications = NotificationService(model: self)
         calendarSync = CalendarSyncService(model: self)
         moodle = MoodleService(model: self)
+        jobs = ClaudeJobRunner(model: self)
         lastDataVersion = store.db.dataVersion
         store.backupIfOlderThan(hours: 20, reason: "daily")
         watcher = InboxWatcher(folder: store.paths.inbox) { [weak self] urls in
@@ -125,12 +131,12 @@ final class AppModel {
     private(set) var undoStack: [UndoSnapshot] = []
     static let undoLimit = 20
 
-    func show(_ message: String, undo: UndoSnapshot? = nil, error: Bool = false) {
+    func show(_ message: String, undo: UndoSnapshot? = nil, error: Bool = false, link: (title: String, route: Route)? = nil) {
         if let undo {
             undoStack.append(undo)
             if undoStack.count > Self.undoLimit { undoStack.removeFirst(undoStack.count - Self.undoLimit) }
         }
-        toast = Toast(message: message, undo: undo, isError: error)
+        toast = Toast(message: message, undo: undo, isError: error, link: link)
         toastTask?.cancel()
         let id = toast!.id
         toastTask = Task { @MainActor in
@@ -166,8 +172,10 @@ final class AppModel {
         switch r {
         case .review(let courseId):
             startReview(courseId: courseId); return
-        case .activity:
-            go(.connections(.claude), replace: replace); return
+        case .activity(let jobId):
+            activityJobId = jobId
+            showActivity = true
+            return
         case .setup:
             go(.today, replace: replace); return
         default: break
@@ -335,7 +343,7 @@ final class AppModel {
                 if !failed.isEmpty { parts.append(failed.count == 1 ? failed[0] : "\(failed.count) files could not be read.") }
                 self.show(parts.joined(separator: " "), error: imported.isEmpty && !failed.isEmpty)
                 self.enrichPendingImages()
-                if self.store.boolSetting("auto_process") { self.autoProcessReady() }
+                if self.store.boolSetting("auto_process") { self.jobs.autoProcessReady() }
             }
         }
     }
@@ -439,51 +447,10 @@ final class AppModel {
 
     // MARK: Claude
 
-    func copyPrompt(_ name: String, _ args: [String: String]) {
-        do {
-            let text = try Prompts.render(name, args: args, store: store)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-            show("Prompt copied. Paste it into Claude Desktop.")
-        } catch { fail(error) }
-    }
-
     func openClaude() {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop") {
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         }
-    }
-
-    /// Runs a prompt with Claude Code in the background (uses the student's own Claude plan), if installed.
-    func runWithClaude(_ name: String, _ args: [String: String], label: String) {
-        guard claudeRun == nil else { show("Claude is still working on \(claudeRun!.label).", error: true); return }
-        guard let cli = claude.findCLI() else { copyPrompt(name, args); return }
-        guard let prompt = try? Prompts.render(name, args: args, store: store) else { return }
-        claudeRun = ClaudeRunState(label: label, started: Date())
-        Task {
-            let outcome = await claude.runHeadless(cli: cli, prompt: prompt, store: store)
-            claudeRun = nil
-            refresh()
-            switch outcome {
-            case .success(let summary): show("Claude finished \(label). " + summary.prefix(160))
-            case .failure(let e): show("Claude could not finish \(label): \(e.localizedDescription). The prompt is copied instead.", error: true); copyPrompt(name, args)
-            }
-        }
-    }
-
-    func process(materialId: Int) {
-        let title = store.material(materialId)?.title ?? "the lecture"
-        if claude.findCLI() != nil && store.boolSetting("use_claude_code", default: true) {
-            runWithClaude("process_lecture", ["material_id": "\(materialId)"], label: "processing \(title)")
-        } else {
-            copyPrompt("process_lecture", ["material_id": "\(materialId)"])
-        }
-    }
-
-    func autoProcessReady() {
-        guard claude.findCLI() != nil, claudeRun == nil,
-              let m = store.unprocessedMaterials().first(where: { $0.role == .lecture }) else { return }
-        process(materialId: m.id)
     }
 
     // MARK: Review
@@ -514,7 +481,6 @@ final class AppModel {
     }
 }
 
-struct ClaudeRunState { var label: String; var started: Date }
 
 struct ICSPreview: Identifiable {
     let id = UUID()

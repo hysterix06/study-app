@@ -131,7 +131,7 @@ struct SuggestedActionCard: View {
         case .planExam: model.planStudy(focusAssignment: action.assignmentId)
         case .review: model.startReview()
         case .recall: if let id = action.materialId { model.openMaterial(id) }
-        case .process: if let id = action.materialId { model.process(materialId: id) }
+        case .process: if let id = action.materialId { model.jobs.run(.process, material: id) }
         case .approveCards: model.go(.inbox(.cards))
         case .nothing: break
         }

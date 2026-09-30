@@ -29,7 +29,8 @@ struct CommandPalette: View {
             PaletteItem(title: "Sync calendars and Moodle", subtitle: "Action", icon: "arrow.clockwise") {
                 Task { await model.syncFeeds(silent: false); await model.moodle.sync(silent: false) }
             },
-            PaletteItem(title: "Copy weekly plan prompt", subtitle: "Claude", icon: "sparkles") { model.copyPrompt("weekly_plan", [:]) },
+            PaletteItem(title: ClaudeTask.weeklyPlan.label, subtitle: "Claude", icon: "sparkles") { model.jobs.run(.weeklyPlan) },
+            PaletteItem(title: "Claude activity", subtitle: "Claude", icon: "sparkles") { model.go(.activity(jobId: nil)) },
             PaletteItem(title: "Open Claude", subtitle: "Claude", icon: "sparkles") { model.openClaude() },
         ]
         let courses = model.store.courses()

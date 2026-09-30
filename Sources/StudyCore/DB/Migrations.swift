@@ -5,7 +5,7 @@ import Foundation
 public enum Migrations {
     public static var currentVersion: Int { all.count }
 
-    public static let all: [String] = [v1, v2, v3]
+    public static let all: [String] = [v1, v2, v3, v4]
 
     public static func migrate(_ db: Database) throws {
         let version = db.userVersion
@@ -375,5 +375,26 @@ public enum Migrations {
       batch_id TEXT
     );
     CREATE INDEX trash_deleted_at ON trash(deleted_at);
+    """
+
+    /// Claude jobs: one queue and one Activity log for every Claude task, in either run mode.
+    static let v4 = """
+    CREATE TABLE claude_jobs (
+      id INTEGER PRIMARY KEY,
+      task TEXT NOT NULL,
+      args_json TEXT NOT NULL DEFAULT '{}',
+      object_kind TEXT,
+      object_id INTEGER,
+      label TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK (mode IN ('automatic','desktop')),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','running','handed_off','waiting','done','failed','canceled')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      started_at TEXT,
+      finished_at TEXT,
+      result_summary TEXT,
+      results_json TEXT NOT NULL DEFAULT '{}',
+      error TEXT
+    );
+    CREATE INDEX claude_jobs_state ON claude_jobs(state);
     """
 }

@@ -270,11 +270,10 @@ struct MaterialRow: View {
                 Button("Open file") { if let p = m.storedPath { NSWorkspace.shared.open(model.store.paths.absolute(p)) } }
                 Button("Study this") { model.openMaterial(m.id) }
                 Divider()
-                Button(model.claude.findCLI() != nil ? "Process with Claude now" : "Copy \"process lecture\" prompt") { model.process(materialId: m.id) }
-                Button("Copy \"process lecture\" prompt") { model.copyPrompt("process_lecture", ["material_id": "\(m.id)"]) }
-                if m.role == .syllabus || m.role == .brief { Button("Copy \"extract deadlines\" prompt") { model.copyPrompt("extract_deadlines", ["material_id": "\(m.id)"]) } }
-                if m.role == .pastExam { Button("Copy \"past exam patterns\" prompt") { model.copyPrompt("exam_patterns", ["material_id": "\(m.id)"]) } }
-                Button("Copy \"practice problems\" prompt") { model.copyPrompt("practice_problems", ["material_id": "\(m.id)"]) }
+                if m.role == .lecture || m.role == .reading { Button(ClaudeTask.process.label) { model.jobs.run(.process, material: m.id) } }
+                if m.role == .syllabus || m.role == .brief { Button(ClaudeTask.extractDeadlines.label) { model.jobs.run(.extractDeadlines, material: m.id) } }
+                if m.role == .pastExam { Button(ClaudeTask.examPatterns.label) { model.jobs.run(.examPatterns, material: m.id) } }
+                Button(ClaudeTask.practice.label) { model.jobs.run(.practice, material: m.id) }
                 Divider()
                 Menu("Role") { ForEach(MaterialRole.allCases) { r in Button(r.label) { model.run { try model.store.updateMaterial(m.id, role: r); return nil } } } }
                 Button("Delete", role: .destructive) { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }
@@ -319,7 +318,7 @@ struct CourseConcepts: View {
                                 Text(c.name).font(.stBodyStrong)
                                 if c.createdBy == "user" { Chip(text: "yours") }
                                 Spacer()
-                                Button { model.copyPrompt("feynman_check", ["concept_id": "\(c.id)"]) } label: { Label("Explain it", systemImage: "person.wave.2") }
+                                Button { model.jobs.run(.explain, concept: c.id) } label: { Label(ClaudeTask.explain.label, systemImage: "person.wave.2") }
                                     .buttonStyle(.borderless).font(.stSmall).help("Copy a Feynman-check prompt")
                             }
                             Text(c.definition).font(.stBody).foregroundStyle(Theme.textSecondary)
