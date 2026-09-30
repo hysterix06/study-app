@@ -29,6 +29,18 @@ public extension StudyStore {
         return ((try? db.query(sql, params)) ?? []).map(Assignment.init)
     }
 
+    /// Deadlines Claude or the importer took from this file, confirmed or still proposed.
+    func assignments(sourceMaterialId id: Int) -> [Assignment] {
+        ((try? db.query("SELECT * FROM assignments WHERE dismissed = 0 AND source_material_id = ? ORDER BY due_at IS NULL, due_at, id", [id])) ?? [])
+            .map(Assignment.init)
+    }
+
+    /// Assignments that use this file as their rubric or brief.
+    func assignments(rubricMaterialId id: Int) -> [Assignment] {
+        ((try? db.query("SELECT * FROM assignments WHERE dismissed = 0 AND rubric_material_id = ? ORDER BY due_at IS NULL, due_at, id", [id])) ?? [])
+            .map(Assignment.init)
+    }
+
     func assignment(_ id: Int) -> Assignment? {
         (try? db.first("SELECT * FROM assignments WHERE id = ?", [id])).map(Assignment.init)
     }

@@ -327,6 +327,12 @@ struct AssignmentDetail: View {
                         Text("None").tag(Int?.none)
                         ForEach(materials) { m in Text(m.title).tag(Int?.some(m.id)) }
                     }
+                    if let rid = assignment.rubricMaterialId {
+                        Button("Open rubric or brief") { model.openMaterial(rid) }.buttonStyle(.borderless)
+                    }
+                    if let sid = assignment.sourceMaterialId, let src = model.store.material(sid) {
+                        Button("From \(src.title)") { model.openMaterial(sid) }.buttonStyle(.borderless)
+                    }
                 }
                 .formStyle(.grouped).scrollDisabled(true)
                 .onChange(of: assignment) { dirty = true }

@@ -167,7 +167,7 @@ struct FileToFileRow: View {
                 Button("Remove") { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }.buttonStyle(QuietButtonStyle())
                 Button("Confirm") {
                     guard let courseId else { return }
-                    model.run("Filed \(m.title).") { try model.store.confirmMaterial(m.id, courseId: courseId, role: role); return nil }
+                    model.run("Filed \(m.title).", link: ("Open", .material(m.id))) { try model.store.confirmMaterial(m.id, courseId: courseId, role: role); return nil }
                     if model.store.boolSetting("auto_process") && role == .lecture { model.jobs.run(.process, material: m.id) }
                 }
                 .buttonStyle(PrimaryButtonStyle()).disabled(courseId == nil).keyboardShortcut(.defaultAction)

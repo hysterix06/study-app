@@ -14,7 +14,7 @@ struct ClaudeButton: View {
             HStack(spacing: 5) {
                 Text(task.label)
                 Image(systemName: mode == .automatic ? "gearshape.2" : "arrow.up.forward.app")
-                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.textTertiary)
+                    .font(.system(size: 10, weight: .semibold)).opacity(0.55)
                     .accessibilityHidden(true)
             }
         }

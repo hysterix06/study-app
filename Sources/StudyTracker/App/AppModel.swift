@@ -162,11 +162,11 @@ final class AppModel {
 
     func fail(_ error: Error) { show("\(error)", error: true) }
 
-    func run(_ label: String? = nil, _ body: () throws -> UndoSnapshot?) {
+    func run(_ label: String? = nil, link: (title: String, route: Route)? = nil, _ body: () throws -> UndoSnapshot?) {
         do {
             let snap = try body()
             refresh()
-            if let label { show(label, undo: snap) }
+            if let label { show(label, undo: snap, link: link) }
         } catch { fail(error) }
     }
 
@@ -227,7 +227,7 @@ final class AppModel {
         case .inbox: go(lastRoute[.inbox] ?? .inbox(nil))
         case .calendar: go(lastRoute[.calendar] ?? .calendar(.week, nil))
         case .assignments: go(lastRoute[.assignments] ?? .assignments)
-        case .study: go(lastRoute[.study] ?? .study(.lectures))
+        case .study: go(lastRoute[.study] ?? .study(.today))
         }
     }
 

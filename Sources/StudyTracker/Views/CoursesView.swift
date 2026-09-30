@@ -236,18 +236,20 @@ struct MaterialRow: View {
             if m.processedAt != nil { Chip(text: "Processed", systemImage: "checkmark") }
             Menu {
                 Button("Open file") { if let p = m.storedPath { NSWorkspace.shared.open(model.store.paths.absolute(p)) } }
-                Button("Study this") { model.openMaterial(m.id) }
+                Menu("Move to") {
+                    ForEach(model.store.courses().filter { $0.id != m.courseId }) { c in
+                        Button(c.displayName) {
+                            model.run("Moved \(m.title) to \(c.displayName).") { try model.store.confirmMaterial(m.id, courseId: c.id, role: m.role); return nil }
+                        }
+                    }
+                }
                 Divider()
-                if m.role == .lecture || m.role == .reading { Button(ClaudeTask.process.label) { model.jobs.run(.process, material: m.id) } }
-                if m.role == .syllabus || m.role == .brief { Button(ClaudeTask.extractDeadlines.label) { model.jobs.run(.extractDeadlines, material: m.id) } }
-                if m.role == .pastExam { Button(ClaudeTask.examPatterns.label) { model.jobs.run(.examPatterns, material: m.id) } }
-                Button(ClaudeTask.practice.label) { model.jobs.run(.practice, material: m.id) }
-                Divider()
-                Menu("Role") { ForEach(MaterialRole.allCases) { r in Button(r.label) { model.run { try model.store.updateMaterial(m.id, role: r); return nil } } } }
                 Button("Delete", role: .destructive) { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }
             } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton).fixedSize()
         }
+        .contentShape(Rectangle())
+        .onTapGesture { model.openMaterial(m.id) }
         .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
     }
     var icon: String {

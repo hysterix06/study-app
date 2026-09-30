@@ -4,9 +4,17 @@ import AppKit
 import StudyCore
 import UniformTypeIdentifiers
 
+/// A hub for doing the work: Today (what to study now), Lectures (every file with its Material page) and Insights.
 struct StudyScreen: View {
     @Environment(AppModel.self) var model
-    var tab: StudySegment { if case .study(let s) = model.route { return s == .insights ? .insights : .lectures }; return .lectures }
+
+    var segment: StudySegment {
+        switch model.route {
+        case .study(let s): return s
+        case .material: return .lectures
+        default: return .today
+        }
+    }
 
     var body: some View {
         let _ = model.revision
@@ -14,131 +22,138 @@ struct StudyScreen: View {
             HStack {
                 Text("Study").font(.stTitle)
                 Spacer()
-                Picker("", selection: Binding(get: { tab }, set: { model.go(.study($0), replace: true) })) {
-                    Text("Lecture").tag(StudySegment.lectures); Text("Insights").tag(StudySegment.insights)
+                Picker("", selection: Binding(get: { segment }, set: { model.go(.study($0), replace: true) })) {
+                    ForEach(StudySegment.allCases) { Text($0.title).tag($0) }
                 }
-                    .pickerStyle(.segmented).labelsHidden().frame(width: 200)
-                Button { model.startReview() } label: { Label("Review \(model.store.dueCount()) cards", systemImage: "rectangle.stack") }
-                    .buttonStyle(QuietButtonStyle()).disabled(model.store.dueCount() == 0)
+                .pickerStyle(.segmented).labelsHidden().frame(width: 280)
             }
             .padding(.horizontal, 24).padding(.vertical, 16)
             Divider()
-            if tab == .insights { InsightsView() } else { LectureStudy() }
+            switch segment {
+            case .today: StudyToday()
+            case .lectures: LectureStudy()
+            case .insights: InsightsView()
+            }
         }
     }
 }
 
+/// What to study now: due cards, the lecture most in need of its next step, and anything left unfinished.
+struct StudyToday: View {
+    @Environment(AppModel.self) var model
+
+    var body: some View {
+        let store = model.store
+        let due = store.dueCount()
+        let snap = store.todaySnapshot()
+        let lectures = store.materials(statuses: ["ready", "needs_ocr"]).filter { $0.courseId != nil && ($0.role == .lecture || $0.role == .reading) }
+        let next = nextLecture(lectures)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if lectures.isEmpty && due == 0 {
+                    EmptyState(text: "Add your first lecture. Slides or a PDF are enough; Claude does the rest.", actionTitle: "Add your first lecture") {
+                        model.chooseFilesToImport()
+                    }
+                }
+                if due > 0 {
+                    Panel {
+                        SectionHeader(title: "Cards due")
+                        HStack {
+                            Text("\(due) card\(due == 1 ? "" : "s") · about \(max(1, due * 20 / 60)) min").font(.stBodyStrong)
+                            Spacer()
+                            Button("Start review") { model.startReview() }.buttonStyle(PrimaryButtonStyle())
+                        }
+                    }
+                }
+                if let (m, step) = next {
+                    Panel {
+                        SectionHeader(title: "Next step")
+                        Button { model.openMaterial(m.id) } label: {
+                            HStack {
+                                CourseDot(color: m.courseId.flatMap { store.course($0)?.color })
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(m.title).font(.stBodyStrong).lineLimit(1)
+                                    Text(step).font(.stSmall).foregroundStyle(Theme.textSecondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").foregroundStyle(Theme.textTertiary)
+                            }.contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                }
+                if let s = snap.openSession, let mid = s.materialId, let m = store.material(mid) {
+                    Panel {
+                        SectionHeader(title: "Unfinished")
+                        Button { model.openMaterial(mid) } label: {
+                            HStack { Text("\(s.kind.capitalized) session: \(m.title)").font(.stBody); Spacer(); Text("Continue").font(.stSmallStrong) }
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(24).contentWidth()
+        }
+    }
+
+    /// The lecture most in need of its next step: recall a processed one first, then process, then write.
+    func nextLecture(_ lectures: [Material]) -> (Material, String)? {
+        let store = model.store
+        func did(_ m: Material, _ kind: String) -> Bool { store.sessions(materialId: m.id, limit: 20).contains { $0.kind == kind } }
+        if let m = lectures.first(where: { $0.processedAt != nil && !did($0, "recall") }) { return (m, "Recall what you remember") }
+        if let m = lectures.first(where: { $0.processedAt == nil }) { return (m, "Process with Claude") }
+        if let m = lectures.first(where: { store.handwritingCaptures(materialId: $0.id).isEmpty }) { return (m, "Write the sheet from memory") }
+        return nil
+    }
+}
+
+/// Every file with a course: the list on the left, its Material page on the right.
 struct LectureStudy: View {
     @Environment(AppModel.self) var model
+    @AppStorage("study.filter") var filter = "lectures"
 
     var body: some View {
         let store = model.store
-        let lectures = store.materials(statuses: ["ready", "needs_ocr"]).filter { $0.courseId != nil && ($0.role == .lecture || $0.role == .reading) }
-        let courses = store.courseMap()
-        let current = model.studyMaterialId.flatMap { id in lectures.first { $0.id == id } } ?? lectures.first
-        HStack(spacing: 0) {
-            List(selection: Binding(get: { current?.id }, set: { model.studyMaterialId = $0 })) {
-                ForEach(lectures) { m in
-                    HStack(spacing: 8) {
-                        CourseDot(color: m.courseId.flatMap { courses[$0]?.color })
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(m.title).font(.stBody).lineLimit(1)
-                            Text(m.courseId.flatMap { courses[$0]?.displayName } ?? "").font(.stSmall).foregroundStyle(Theme.textTertiary)
-                        }
-                        Spacer()
-                        if m.processedAt != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.textSecondary).font(.system(size: 11)).accessibilityLabel("Processed") }
-                    }.tag(m.id)
-                }
-            }
-            .frame(width: 260)
-            Divider()
-            if let m = current {
-                ScrollView { StudyFlow(material: m).padding(24).contentWidth() }
-            } else {
-                EmptyState(text: "File a lecture under a course and it shows up here, ready to study.", actionTitle: "Go to Inbox") { model.go(.inbox(nil)) }
+        let all = store.materials(statuses: ["ready", "needs_ocr", "failed"]).filter { $0.courseId != nil }
+        let shown = all.filter { m in
+            switch filter {
+            case "documents": return [.syllabus, .brief, .rubric].contains(m.role)
+            case "exams": return m.role == .pastExam
+            case "all": return true
+            default: return m.role == .lecture || m.role == .reading
             }
         }
-    }
-}
-
-/// Recall → Learn → Write → Test, with one action per step (§7.3 Study).
-struct StudyFlow: View {
-    @Environment(AppModel.self) var model
-    let m: Material
-    init(material: Material) { m = material }
-
-    var body: some View {
-        let store = model.store
-        let course = m.courseId.flatMap { store.course($0) }
-        let sessions = store.sessions(materialId: m.id, limit: 50)
-        let concepts = store.concepts(materialId: m.id)
-        let sheet = store.notes(materialId: m.id, kind: "cornell_sheet").first
-        let captures = store.handwritingCaptures(materialId: m.id)
-        let latestScore = sessions.first { ($0.itemsTotal ?? 0) > 0 }
-        let recalled = latestScore.map { Double($0.itemsCorrect ?? 0) / Double(max($0.itemsTotal ?? 1, 1)) } ?? 0
-        let done: (String) -> Bool = { kind in sessions.contains { $0.kind == kind } }
-        let cardsForMaterial = store.cards(status: "active", materialId: m.id)
-        // One primary action per screen (§2.5): the first step that isn't done.
-        let current: Int = m.processedAt == nil ? 2 : (!done("recall") ? 1 : (captures.isEmpty ? 3 : 4))
-        let style: (Int) -> AnyButtonStyle = { step in step == current ? AnyButtonStyle(PrimaryButtonStyle()) : AnyButtonStyle(QuietButtonStyle()) }
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(m.title).font(.stHeading)
-                Text([course?.name, m.processedAt.map { "processed \(RelativeTime.describe($0))" }].compactMap { $0 }.joined(separator: " · "))
-                    .font(.stBody).foregroundStyle(Theme.textSecondary)
-            }
-            if !concepts.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack { Text("Concepts recalled").font(.stSmallStrong); Spacer(); Text("\(Int(recalled * Double(concepts.count))) of \(concepts.count)").font(.stSmall).monospacedDigit() }
-                    ProgressView(value: recalled).tint(Theme.course(course?.color))
-                }
-            }
-            HStack(alignment: .top, spacing: 12) {
-                StepCard(n: 1, title: "Recall", detail: "Write what you remember before looking.", done: done("recall")) {
-                    ClaudeButton(task: .recall) { model.jobs.run(.recall, material: m.id) }.buttonStyle(style(1))
-                        .disabled(m.processedAt == nil).help(m.processedAt == nil ? "Process the lecture first so Claude can compare your recall" : "")
-                }
-                StepCard(n: 2, title: "Learn", detail: m.processedAt == nil ? "Claude reads the lecture and builds concepts, questions and your sheet." : "\(concepts.count) concepts, linked to their slides.", done: m.processedAt != nil) {
-                    if m.processedAt == nil {
-                        ClaudeButton(task: .process) { model.jobs.run(.process, material: m.id) }.buttonStyle(style(2))
-                    } else if let c = course {
-                        Button("Concepts") { model.openCourse(c.id, tab: .concepts) }.buttonStyle(style(2))
-                    }
-                }
-                StepCard(n: 3, title: "Write", detail: "Fill the sheet by hand from memory, then photograph it for a gap check.", done: !captures.isEmpty) {
-                    if let sheet {
-                        Button("Print sheet") { model.exportSheet(sheet, print: true) }.buttonStyle(style(3))
-                    }
-                    Button("Check my notes") { model.handwritingMaterialId = m.id }
-                        .buttonStyle(sheet == nil ? style(3) : AnyButtonStyle(QuietButtonStyle()))
-                }
-                StepCard(n: 4, title: "Test", detail: "\(cardsForMaterial.count) cards from this lecture. Mixed with others for interleaving.", done: done("quiz") || done("review")) {
-                    Button("Start review") { model.startReview(courseId: m.courseId) }.buttonStyle(style(4))
-                    ClaudeButton(task: .quiz) { model.jobs.run(.quiz, material: m.id) }.buttonStyle(.borderless).font(.stSmall)
-                }
-            }
-            if !sessions.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionHeader(title: "Sessions")
-                    ForEach(sessions.prefix(8)) { s in
-                        HStack(alignment: .top) {
-                            Text(s.kind.capitalized).font(.stSmallStrong).frame(width: 90, alignment: .leading)
-                            Text(s.summary ?? "").font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(3)
+        let courses = store.courseMap()
+        let current = model.studyMaterialId.flatMap { id in all.first { $0.id == id } } ?? shown.first
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                Picker("Show", selection: $filter) {
+                    Text("Lectures and readings").tag("lectures")
+                    Text("Syllabi, briefs and rubrics").tag("documents")
+                    Text("Past exams").tag("exams")
+                    Text("All files").tag("all")
+                }.labelsHidden().padding(10)
+                List(selection: Binding(get: { current?.id }, set: { if let id = $0 { model.go(.material(id), replace: true) } })) {
+                    ForEach(shown) { m in
+                        HStack(spacing: 8) {
+                            CourseDot(color: m.courseId.flatMap { courses[$0]?.color })
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(m.title).font(.stBody).lineLimit(1)
+                                Text(m.courseId.flatMap { courses[$0]?.displayName } ?? "").font(.stSmall).foregroundStyle(Theme.textTertiary)
+                            }
                             Spacer()
-                            Text(Formatters.day(s.startedAt, tz: model.tz)).font(.stSmall).foregroundStyle(Theme.textTertiary)
-                        }
+                            if m.processedAt != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.textSecondary).font(.system(size: 11)).accessibilityLabel("Processed") }
+                            if m.status == "failed" { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.attention).font(.system(size: 11)).accessibilityLabel("Could not be read") }
+                        }.tag(m.id)
                     }
                 }
             }
-            let reports = store.notes(materialId: m.id).filter { $0.kind != "cornell_sheet" }
-            if !reports.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionHeader(title: "Gap reports and notes")
-                    ForEach(reports.prefix(6)) { n in
-                        DisclosureGroup {
-                            Text(LocalizedStringKey(n.contentMd)).font(.stBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                        } label: { Text(n.title).font(.stBody) }
-                    }
+            .frame(width: 280)
+            Divider()
+            if let m = current {
+                ScrollView { MaterialPage(materialId: m.id).padding(24).contentWidth() }
+            } else {
+                EmptyState(text: "Add your first lecture. Slides or a PDF are enough; Claude does the rest.", actionTitle: "Add your first lecture") {
+                    model.chooseFilesToImport()
                 }
             }
         }
@@ -149,30 +164,6 @@ struct AnyButtonStyle: ButtonStyle {
     let make: (Configuration) -> AnyView
     init<S: ButtonStyle>(_ s: S) { make = { AnyView(s.makeBody(configuration: $0)) } }
     func makeBody(configuration: Configuration) -> some View { make(configuration) }
-}
-
-struct StepCard<Actions: View>: View {
-    var n: Int
-    var title: String
-    var detail: String
-    var done: Bool
-    @ViewBuilder var actions: () -> Actions
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("\(n)").font(.stSmallStrong).frame(width: 20, height: 20).background(Circle().fill(Theme.fillSubtle))
-                Text(title).font(.stBodyStrong)
-                Spacer()
-                if done { Image(systemName: "checkmark").font(.stSmallStrong).foregroundStyle(Theme.textSecondary).accessibilityLabel("Done") }
-            }
-            Text(detail).font(.stSmall).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 4)
-            actions()
-        }
-        .padding(14).frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: Theme.radiusCard).fill(Theme.surface))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).strokeBorder(Theme.hairline))
-    }
 }
 
 // MARK: - Review session
@@ -434,9 +425,15 @@ struct InsightsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Is this working? These measure outcomes, not activity.").font(.stBody).foregroundStyle(Theme.textSecondary)
                 HStack(spacing: 12) {
-                    stat("On-time rate", o.onTimeRate.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", "\(o.missedDeadlines.count) missed this term")
-                    stat("Card retention", o.retention30d.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", "\(o.reviews30d) reviews in 30 days")
-                    stat("Recalled within 48 h", o.processedLectures == 0 ? "—" : "\(o.recalledWithin48h)/\(o.processedLectures)", "processed lectures")
+                    stat("On-time rate", o.onTimeRate.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", "\(o.missedDeadlines.count) missed this term") {
+                        model.go(.assignments)
+                    }
+                    stat("Card retention", o.retention30d.map { "\(Int(($0 * 100).rounded()))%" } ?? "—", "\(o.reviews30d) reviews in 30 days") {
+                        model.go(.review(courseId: nil))
+                    }
+                    stat("Recalled within 48 h", o.processedLectures == 0 ? "—" : "\(o.recalledWithin48h)/\(o.processedLectures)", "processed lectures") {
+                        model.go(.study(.lectures))
+                    }
                 }
                 Panel {
                     SectionHeader(title: "Study minutes per week")
@@ -456,7 +453,7 @@ struct InsightsView: View {
                     Panel {
                         SectionHeader(title: "Grades against targets")
                         ForEach(o.gradeByCourse, id: \.course.id) { g in
-                            HStack {
+                            Button { model.openCourse(g.course.id) } label: { HStack {
                                 CourseDot(color: g.course.color)
                                 Text(g.course.displayName).font(.stBodyStrong).frame(width: 90, alignment: .leading)
                                 Text(g.summary.currentOnScale.map { g.course.gradeScale.format($0) } ?? "—").monospacedDigit()
@@ -464,7 +461,7 @@ struct InsightsView: View {
                                 Spacer()
                                 Text(g.summary.headline).font(.stSmall)
                                     .foregroundStyle(g.summary.state == .unreachable || g.summary.state == .componentFailed ? Theme.attention : Theme.textSecondary)
-                            }.font(.stBody)
+                            }.font(.stBody).contentShape(Rectangle()) }.buttonStyle(.plain)
                         }
                     }
                 }
@@ -496,11 +493,14 @@ struct InsightsView: View {
         }
     }
 
-    func stat(_ title: String, _ value: String, _ sub: String) -> some View {
-        Panel {
-            Text(title).font(.stSmall).foregroundStyle(Theme.textSecondary)
-            Text(value).font(.stTitle).monospacedDigit()
-            Text(sub).font(.stSmall).foregroundStyle(Theme.textTertiary)
-        }
+    /// Each stat opens what drives it.
+    func stat(_ title: String, _ value: String, _ sub: String, open: @escaping () -> Void) -> some View {
+        Button(action: open) {
+            Panel {
+                Text(title).font(.stSmall).foregroundStyle(Theme.textSecondary)
+                Text(value).font(.stTitle).monospacedDigit()
+                HStack { Text(sub).font(.stSmall).foregroundStyle(Theme.textTertiary); Spacer(); Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Theme.textTertiary) }
+            }.contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 }

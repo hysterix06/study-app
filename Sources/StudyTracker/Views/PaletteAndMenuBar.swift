@@ -40,8 +40,8 @@ struct CommandPalette: View {
         for a in model.store.assignments().filter({ $0.isOpen }) {
             out.append(PaletteItem(title: a.title, subtitle: "Assignment · \(a.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "checklist") { model.openAssignment(a.id) })
         }
-        for m in model.store.materials().prefix(60) where m.courseId != nil {
-            out.append(PaletteItem(title: m.title, subtitle: "Lecture · \(m.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "doc") { model.openMaterial(m.id) })
+        for m in model.store.materials() where m.courseId != nil {
+            out.append(PaletteItem(title: m.title, subtitle: "\(m.role.label) · \(m.courseId.flatMap { map[$0]?.displayName } ?? "")", icon: "doc") { model.openMaterial(m.id) })
         }
         return out
     }
