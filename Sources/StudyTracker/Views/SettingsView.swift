@@ -3,88 +3,48 @@ import EventKit
 import StudyCore
 import UniformTypeIdentifiers
 
-enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, terms, calendars, moodle, claude, apple, data
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .general: return "General"
-        case .terms: return "Terms and breaks"
-        case .calendars: return "Calendars"
-        case .moodle: return "Moodle"
-        case .claude: return "Claude"
-        case .apple: return "Apple Calendar and alerts"
-        case .data: return "Data and export"
-        }
-    }
+extension SettingsPane {
     var icon: String {
         switch self {
         case .general: return "slider.horizontal.3"
+        case .planner: return "wand.and.stars"
         case .terms: return "calendar.badge.clock"
-        case .calendars: return "calendar.badge.plus"
-        case .moodle: return "graduationcap"
-        case .claude: return "sparkles"
-        case .apple: return "bell.badge"
+        case .notifications: return "bell.badge"
+        case .appearance: return "paintpalette"
         case .data: return "externaldrive"
-        }
-    }
-
-    /// Until Settings moves to its own window, connections and preference panes share this in-window screen.
-    init(route: Route) {
-        switch route {
-        case .settings(.terms): self = .terms
-        case .settings(.notifications): self = .apple
-        case .settings(.data): self = .data
-        case .connections(.calendars): self = .calendars
-        case .connections(.claude): self = .claude
-        case .connections(.apple): self = .apple
-        case .connections: self = .moodle
-        default: self = .general
-        }
-    }
-
-    var route: Route {
-        switch self {
-        case .general: return .settings(.general)
-        case .terms: return .settings(.terms)
-        case .data: return .settings(.data)
-        case .calendars: return .connections(.calendars)
-        case .moodle: return .connections(.moodle)
-        case .claude: return .connections(.claude)
-        case .apple: return .connections(.apple)
+        case .advanced: return "wrench.and.screwdriver"
         }
     }
 }
 
-struct SettingsScreen: View {
+/// Settings (⌘,) holds preferences only; connections live in the main window's Connections screen.
+struct SettingsWindow: View {
     @Environment(AppModel.self) var model
+    @AppStorage("settings.pane") var pane: SettingsPane = .general
+
     var body: some View {
         let _ = model.revision
-        let section = SettingsSection(route: model.route)
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                List(selection: Binding(get: { section }, set: { if let s = $0 { model.go(s.route, replace: true) } })) {
-                    ForEach(SettingsSection.allCases) { s in Label(s.title, systemImage: s.icon).tag(s) }
-                }
-                Text("Study Tracker | v\(appVersion)").font(.stSmall).foregroundStyle(Theme.textTertiary).textSelection(.enabled).padding(12)
-            }.frame(width: 230)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text(section.title).font(.stTitle)
-                    switch section {
-                    case .general: GeneralSettings()
-                    case .terms: TermsSettings()
-                    case .calendars: CalendarSettings()
-                    case .moodle: MoodleSettings()
-                    case .claude: ClaudeSettings()
-                    case .apple: AppleSettings()
-                    case .data: DataSettings()
+        TabView(selection: $pane) {
+            ForEach(SettingsPane.allCases) { p in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        switch p {
+                        case .general: GeneralSettings()
+                        case .planner: PlannerSettings()
+                        case .terms: TermsSettings()
+                        case .notifications: NotificationSettings()
+                        case .appearance: AppearanceSettings()
+                        case .data: DataSettings()
+                        case .advanced: AdvancedSettings()
+                        }
                     }
+                    .padding(24).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(28).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                .tabItem { Label(p.title, systemImage: p.icon) }
+                .tag(p)
             }
         }
+        .frame(width: 720, height: 560)
     }
 }
 
@@ -114,7 +74,15 @@ struct GeneralSettings: View {
             TimeSetting(label: "Default due time", key: "default_due_time", def: "23:59")
             Toggle("Type dates as day/month (12/10 = 12 October)", isOn: boolBinding(model, "day_first_dates", default: model.store.dayFirstDates))
             Picker("Paper for Cornell sheets", selection: settingBinding(model, "paper_size", default: "a4")) { ForEach(PaperSize.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) } }
-            Section("Study planner") {
+        }.formStyle(.grouped)
+    }
+}
+
+struct PlannerSettings: View {
+    @Environment(AppModel.self) var model
+    var body: some View {
+        Form {
+            Section("Study window") {
                 TimeSetting(label: "Study window starts", key: "study_window_start", def: "08:00")
                 TimeSetting(label: "Study window ends", key: "study_window_end", def: "22:00")
                 Stepper("At most \(model.store.intSetting("max_study_minutes_per_day", default: 180) / 60) h of planned study a day",
@@ -356,12 +324,6 @@ struct ClaudeSettings: View {
                 }
             }
             Panel {
-                SectionHeader(title: "Status")
-                row("Database", model.store.paths.database.path)
-                row("MCP server", svc.mcpBinary?.path ?? "Not found (build the app bundle)")
-                row("Schema version", "database \(model.store.db.userVersion) · server expects \(Migrations.currentVersion) · \(model.store.db.userVersion == Migrations.currentVersion ? "match" : "MISMATCH")")
-            }
-            Panel {
                 SectionHeader(title: "Run mode")
                 Picker("", selection: Binding(get: { model.jobs.runMode }, set: { model.jobs.runMode = $0 })) {
                     Text("Automatic").tag(JobMode.automatic)
@@ -399,9 +361,47 @@ struct ClaudeSettings: View {
     }
 }
 
+// MARK: Appearance and advanced
+
+/// Themes arrive in a later step; until then Paper follows the system appearance.
+struct AppearanceSettings: View {
+    var body: some View {
+        Panel {
+            SectionHeader(title: "Theme")
+            Text("Paper · follows the system's light or dark appearance.").font(.stBody)
+        }
+    }
+}
+
+struct AdvancedSettings: View {
+    @Environment(AppModel.self) var model
+    var body: some View {
+        let svc = model.claude
+        Panel {
+            SectionHeader(title: "Status")
+            row("Database", model.store.paths.database.path)
+            row("MCP server", svc.mcpBinary?.path ?? "Not found (build the app bundle)")
+            row("Schema version", "database \(model.store.db.userVersion) · server expects \(Migrations.currentVersion) · \(model.store.db.userVersion == Migrations.currentVersion ? "match" : "MISMATCH")")
+            row("Version", appVersion)
+        }
+        Panel {
+            SectionHeader(title: "Setup")
+            Text("Run first-run setup again to connect Moodle, a timetable or Claude.").font(.stSmall).foregroundStyle(Theme.textSecondary)
+            Button("Run setup again") { model.go(.setup(.welcome)) }.buttonStyle(QuietButtonStyle())
+        }
+    }
+
+    func row(_ k: String, _ v: String) -> some View {
+        HStack(alignment: .top) {
+            Text(k).font(.stSmall).foregroundStyle(Theme.textSecondary).frame(width: 160, alignment: .leading)
+            Text(v).font(.stSmall).textSelection(.enabled).lineLimit(3)
+        }
+    }
+}
+
 // MARK: Apple Calendar and notifications
 
-struct AppleSettings: View {
+struct AppleSyncSettings: View {
     @Environment(AppModel.self) var model
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -429,7 +429,22 @@ struct AppleSettings: View {
                         }
                     }))
                 if let s = model.calendarSync.lastStatus { Text(s).font(.stSmall).foregroundStyle(Theme.textSecondary) }
-                Section("Notifications") {
+            }.formStyle(.grouped)
+            Button("Export an .ics file for other calendar apps") {
+                let url = model.store.paths.export.appendingPathComponent("study-tracker.ics")
+                do { try Exporter.icsFeed(store: model.store).write(to: url, atomically: true, encoding: .utf8); NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                catch { model.fail(error) }
+            }.buttonStyle(QuietButtonStyle())
+        }
+    }
+}
+
+struct NotificationSettings: View {
+    @Environment(AppModel.self) var model
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Form {
+                Section {
                     Toggle("Notify me about classes, deadlines and study blocks", isOn: Binding(
                         get: { model.store.boolSetting("notifications_enabled") },
                         set: { on in
@@ -447,11 +462,6 @@ struct AppleSettings: View {
                     TimeSetting(label: "Morning summary at", key: "digest_time", def: "08:00")
                 }
             }.formStyle(.grouped)
-            Button("Export an .ics file for other calendar apps") {
-                let url = model.store.paths.export.appendingPathComponent("study-tracker.ics")
-                do { try Exporter.icsFeed(store: model.store).write(to: url, atomically: true, encoding: .utf8); NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                catch { model.fail(error) }
-            }.buttonStyle(QuietButtonStyle())
         }
     }
 }

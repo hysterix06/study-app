@@ -183,7 +183,23 @@ public struct MoodleStats: Equatable {
 
 public struct MoodleCourseInfo: Hashable {
     public var id: Int; public var shortname: String; public var fullname: String
-    public init(id: Int, shortname: String, fullname: String) { self.id = id; self.shortname = shortname; self.fullname = fullname }
+    /// Course dates from Moodle, when the school sets them.
+    public var start: Date?; public var end: Date?
+    public init(id: Int, shortname: String, fullname: String, start: Date? = nil, end: Date? = nil) {
+        self.id = id; self.shortname = shortname; self.fullname = fullname; self.start = start; self.end = end
+    }
+
+    init?(json d: [String: Any]) {
+        guard let id = (d["id"] as? NSNumber)?.intValue else { return nil }
+        func date(_ k: String) -> Date? { ((d[k] as? NSNumber)?.doubleValue).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil } }
+        self.init(id: id, shortname: d["shortname"] as? String ?? "", fullname: d["fullname"] as? String ?? "",
+                  start: date("startdate"), end: date("enddate"))
+    }
+
+    var json: [String: Any] {
+        ["id": id, "shortname": shortname, "fullname": fullname,
+         "startdate": start.map { Int($0.timeIntervalSince1970) } ?? 0, "enddate": end.map { Int($0.timeIntervalSince1970) } ?? 0]
+    }
 }
 
 public struct MoodleSyncReport {
@@ -210,6 +226,48 @@ public struct MoodleSyncReport {
 
 public enum MoodleSync {
     public static let tokenAccount = "moodle-token"
+
+    /// The courses Moodle listed at the last sync.
+    public static func storedCourses(store: StudyStore) -> [MoodleCourseInfo] {
+        (JSON.parse(store.setting("moodle_courses")) as? [[String: Any]] ?? []).compactMap(MoodleCourseInfo.init(json:))
+    }
+
+    /// Moodle courses running now (or starting within 60 days) that have no local course yet.
+    public static func unlinkedCurrentCourses(store: StudyStore, now: Date = Date()) -> [MoodleCourseInfo] {
+        let linked = Set(store.courses(includeArchived: true).compactMap(\.moodleId))
+        return storedCourses(store: store).filter { c in
+            !linked.contains(c.id) && (c.end.map { $0 > now } ?? true) && (c.start.map { $0 < now.adding(days: 60) } ?? true)
+        }
+    }
+
+    /// First-run setup: creates the current term (from the courses' dates, unless one exists) and a local course for
+    /// each current Moodle course, linked by Moodle id so the next sync brings in deadlines, grades and files.
+    @discardableResult
+    public static func createCoursesAndTerm(store: StudyStore, now: Date = Date()) throws -> (termCreated: Bool, courses: Int) {
+        let todo = unlinkedCurrentCourses(store: store, now: now)
+        guard !todo.isEmpty else { return (false, 0) }
+        let tz = store.timezone
+        var created = false
+        let termId: Int
+        if let t = store.currentTerm() {
+            termId = t.id
+        } else {
+            let start = todo.compactMap(\.start).min() ?? now
+            let end = todo.compactMap(\.end).max() ?? start.adding(days: 120)
+            let first = LocalDate(start, tz: tz)
+            let season = first.month >= 8 ? "Fall" : first.month >= 6 ? "Summer" : "Spring"
+            termId = try store.saveTerm(Term(name: "\(season) \(first.year)", startDate: first, endDate: LocalDate(end, tz: tz), isCurrent: true))
+            created = true
+        }
+        for c in todo {
+            let code = c.shortname.trimmingCharacters(in: .whitespaces)
+            let name = c.fullname.trimmingCharacters(in: .whitespaces)
+            _ = try store.saveCourse(Course(termId: termId, code: code.isEmpty ? nil : code, name: name.isEmpty ? code : name,
+                                            color: store.nextCourseColor(), moodleId: c.id))
+        }
+        store.audit("moodle_create_courses", detail: "\(todo.count) courses")
+        return (created, todo.count)
+    }
 
     public static func stats(store: StudyStore) -> MoodleStats {
         func count(_ sql: String) -> Int { (try? store.db.scalarInt(sql)) ?? 0 }
@@ -247,11 +305,8 @@ public enum MoodleSync {
             store.setSetting("moodle_user_name", info["fullname"] as? String)
             if let name = stripHTML(info["sitename"] as? String) { store.setSetting("moodle_site_name", name) }
             let list = try await client.call("core_enrol_get_users_courses", ["userid": userId]) as? [[String: Any]] ?? []
-            report.courses = list.compactMap { c in
-                guard let id = (c["id"] as? NSNumber)?.intValue else { return nil }
-                return MoodleCourseInfo(id: id, shortname: c["shortname"] as? String ?? "", fullname: c["fullname"] as? String ?? "")
-            }
-            store.setSetting("moodle_courses", JSON.string(report.courses.map { ["id": $0.id, "shortname": $0.shortname, "fullname": $0.fullname] }))
+            report.courses = list.compactMap(MoodleCourseInfo.init(json:))
+            store.setSetting("moodle_courses", JSON.string(report.courses.map(\.json)))
 
             // Link Moodle courses to local ones by code or name.
             var local = store.courses()

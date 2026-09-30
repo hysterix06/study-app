@@ -19,8 +19,9 @@ struct CommandPalette: View {
 
     var items: [PaletteItem] {
         var out: [PaletteItem] = []
-        for s in SidebarItem.sidebar { out.append(PaletteItem(title: s.title, subtitle: "Go to", icon: s.icon) { model.open(s) }) }
-        out.append(PaletteItem(title: "Settings", subtitle: "Go to", icon: "gearshape") { model.go(.settings(.general)) })
+        for s in SidebarItem.numbered { out.append(PaletteItem(title: s.title, subtitle: "Go to", icon: s.icon) { model.open(s) }) }
+        for k in ConnectionKind.allCases { out.append(PaletteItem(title: k.title, subtitle: "Connection", icon: k.icon) { model.go(.connections(k)) }) }
+        for p in SettingsPane.allCases { out.append(PaletteItem(title: p.title, subtitle: "Settings", icon: p.icon) { model.go(.settings(p)) }) }
         out += [
             PaletteItem(title: "Add assignment", subtitle: "Action", icon: "plus") { model.go(.assignments); model.focusQuickAdd += 1 },
             PaletteItem(title: "Import files", subtitle: "Action", icon: "square.and.arrow.down") { model.chooseFilesToImport() },

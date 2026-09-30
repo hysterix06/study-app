@@ -18,8 +18,10 @@ struct TodayView: View {
                         Text(greeting(ctx.date)).font(.stBody).foregroundStyle(Theme.textSecondary)
                     }
 
+                    if !store.boolSetting("setup_checklist_hidden") { SetupChecklist() }
                     if store.courses().isEmpty {
-                        OnboardingCard()
+                        EmptyState(text: "Add your courses to see what's next. Connect Moodle to bring them in, or add them by hand.",
+                                   actionTitle: "Connect Moodle") { model.go(.connections(.moodle)) }
                     } else {
                         SuggestedActionCard(action: snap.suggested)
 
@@ -235,40 +237,6 @@ struct AssignmentLine: View {
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: Theme.corner(6)).fill(Theme.fillSubtle))
         .contentShape(Rectangle())
-    }
-}
-
-struct OnboardingCard: View {
-    @Environment(AppModel.self) var model
-    @State private var loading = false
-    var body: some View {
-        Panel(padding: 24) {
-            Text("Set up in three steps").font(.stHeading)
-            VStack(alignment: .leading, spacing: 10) {
-                step(1, "Add your timetable", "Import an .ics file from Outlook or subscribe to a calendar link, or connect Moodle.")
-                step(2, "Drop in your lecture slides", "Drag PowerPoint or PDF files onto this window or into ~/StudyTracker/Inbox.")
-                step(3, "Connect Claude", "One click in Connections › Claude lets Claude Desktop read your lectures and save concepts back here.")
-            }
-            HStack {
-                Button("Open Connections") { model.go(.connections(nil)) }.buttonStyle(PrimaryButtonStyle())
-                Button(loading ? "Loading…" : "Try it with sample data") {
-                    loading = true
-                    do { try SampleData.load(model.store); model.refresh(); model.show("Sample term, courses, classes and a lecture were added. Remove them any time in Settings › Data and export.") }
-                    catch { model.fail(error) }
-                    loading = false
-                }.buttonStyle(QuietButtonStyle())
-            }.padding(.top, 6)
-        }
-    }
-
-    func step(_ n: Int, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(n)").font(.stBodyStrong).frame(width: 24, height: 24).background(Circle().fill(Theme.fillSubtle))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.stBodyStrong)
-                Text(detail).font(.stBody).foregroundStyle(Theme.textSecondary)
-            }
-        }
     }
 }
 

@@ -44,7 +44,8 @@ struct StudyTrackerApp: App {
                     Button("Forward") { model.goForward() }.keyboardShortcut("]").disabled(!model.canGoForward)
                     Divider()
                     Button("Command Palette") { model.showPalette = true }.keyboardShortcut("k")
-                    Button("Settings") { model.go(.settings(.general)) }.keyboardShortcut(",")
+                    Button("Connections") { model.go(.connections(nil)) }
+                    Button("Claude Activity") { model.go(.activity(jobId: nil)) }
                 }
                 CommandMenu("Study") {
                     Button("Start Review") { model.startReview() }.keyboardShortcut("r", modifiers: [.command, .shift])
@@ -54,6 +55,10 @@ struct StudyTrackerApp: App {
                     }.keyboardShortcut("s", modifiers: [.command, .shift])
                 }
             }
+        }
+
+        Settings {
+            if let model { SettingsWindow().environment(model).themed() }
         }
 
         MenuBarExtra {
@@ -76,6 +81,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Launch arguments for demos and screenshots: -sampleData YES -route calendar/month
             if UserDefaults.standard.bool(forKey: "sampleData") && !SampleData.isLoaded(store) { try? SampleData.load(store) }
             let model = AppModel(store: store)
+            // First launch opens setup; people who already have courses skip it.
+            if !store.boolSetting("setup_completed") {
+                if !store.courses(includeArchived: true).isEmpty { store.setBool("setup_completed", true) }
+                else { model.go(.setup(SetupStep(rawValue: store.setting("setup_step") ?? "") ?? .welcome), replace: true) }
+            }
             if let r = UserDefaults.standard.string(forKey: "route").flatMap(Route.init(path:)) { model.go(r, replace: true) }
             DebugSnapshots.runIfRequested(model: model)
             return model
@@ -106,9 +116,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct RootView: View {
     @Environment(AppModel.self) var model
+    @Environment(\.openSettings) var openSettings
 
     var body: some View {
         @Bindable var model = model
+        Group {
+            if case .setup(let step) = model.route {
+                ZStack(alignment: .bottom) { SetupFlow(step: step); ToastHost() }
+            } else {
+                split
+            }
+        }
+        .onChange(of: model.settingsRequest) { openSettings() }
+        .sheet(item: $model.review) { session in ReviewView(session: session) }
+        .sheet(item: $model.icsPreview) { p in ICSPreviewSheet(preview: p) }
+        .sheet(isPresented: $model.showPalette) { CommandPalette() }
+        .sheet(item: $model.courseEditor) { c in CourseEditor(course: c) }
+        .sheet(item: Binding(get: { model.handwritingMaterialId.map { IdentifiedInt(id: $0) } }, set: { model.handwritingMaterialId = $0?.id })) { m in
+            HandwritingSheet(materialId: m.id)
+        }
+    }
+
+    var split: some View {
         NavigationSplitView {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
@@ -133,23 +162,17 @@ struct RootView: View {
             loadURLs(providers) { model.importFiles($0) }
             return true
         }
-        .sheet(item: $model.review) { session in ReviewView(session: session) }
-        .sheet(item: $model.icsPreview) { p in ICSPreviewSheet(preview: p) }
-        .sheet(isPresented: $model.showPalette) { CommandPalette() }
-        .sheet(item: Binding(get: { model.handwritingMaterialId.map { IdentifiedInt(id: $0) } }, set: { model.handwritingMaterialId = $0?.id })) { m in
-            HandwritingSheet(materialId: m.id)
-        }
     }
 
     @ViewBuilder var detail: some View {
-        switch model.route.screen {
-        case .today, .setup: TodayView()
+        switch model.route {
         case .inbox: InboxScreen()
-        case .calendar: CalendarScreen()
-        case .assignments: AssignmentsScreen()
-        case .course: CoursesScreen()
-        case .study: StudyScreen()
-        case .connections, .settings: SettingsScreen()
+        case .calendar, .occurrence: CalendarScreen()
+        case .assignments, .assignment: AssignmentsScreen()
+        case .course(let id, _): CourseScreen(courseId: id)
+        case .study, .material, .review: StudyScreen()
+        case .connections(let k): ConnectionsScreen(kind: k)
+        case .today, .activity, .settings, .setup: TodayView()
         }
     }
 }
@@ -169,36 +192,84 @@ func loadURLs(_ providers: [NSItemProvider], completion: @escaping ([URL]) -> Vo
     group.notify(queue: .main) { completion(urls) }
 }
 
+/// Three groups: Screens, Courses (archived ones collapsed) and Connections, each with a live status dot.
 struct Sidebar: View {
     @Environment(AppModel.self) var model
+    @AppStorage("sidebar.archivedOpen") var archivedOpen = false
 
     var body: some View {
         let _ = model.revision
         let inbox = model.store.inboxCount()
+        let all = model.store.courses(includeArchived: true)
+        let current = all.filter { !$0.archived }, archived = all.filter(\.archived)
         VStack(spacing: 0) {
-            List(selection: Binding(get: { model.sidebarItem }, set: { if let s = $0 { model.open(s) } })) {
-                ForEach(SidebarItem.sidebar) { s in
-                    Label(s.title, systemImage: s.icon)
-                        .badge(s == .inbox && inbox > 0 ? inbox : 0)
-                        .tag(s)
-                        .accessibilityLabel(s == .inbox && inbox > 0 ? "Inbox, \(inbox) items" : s.title)
+            List(selection: Binding(get: { model.sidebarSelection }, set: { if let s = $0 { model.open(s) } })) {
+                Section {
+                    ForEach(SidebarItem.numbered) { s in
+                        Label(s.title, systemImage: s.icon)
+                            .badge(s == .inbox && inbox > 0 ? inbox : 0)
+                            .tag(SidebarSelection.screen(s))
+                            .accessibilityLabel(s == .inbox && inbox > 0 ? "Inbox, \(inbox) items" : s.title)
+                    }
+                }
+                Section {
+                    ForEach(current) { c in courseRow(c) }
+                    if !archived.isEmpty {
+                        DisclosureGroup("Archived", isExpanded: $archivedOpen) {
+                            ForEach(archived) { c in courseRow(c).opacity(0.55) }
+                        }
+                    }
+                    if current.isEmpty && archived.isEmpty {
+                        Button("Add a course") { model.newCourse() }.buttonStyle(.borderless).foregroundStyle(Theme.textSecondary)
+                    }
+                } header: {
+                    HStack {
+                        Text("Courses")
+                        Spacer()
+                        Button { model.newCourse() } label: { Image(systemName: "plus") }.buttonStyle(.borderless).help("Add course")
+                            .accessibilityLabel("Add course")
+                    }
+                }
+                Section {
+                    ForEach(ConnectionKind.allCases) { k in
+                        let status = model.connectionStatus(k)
+                        HStack {
+                            Label(k.title, systemImage: k.icon)
+                            Spacer()
+                            StatusDot(status: status)
+                        }
+                        .tag(SidebarSelection.connection(k))
+                        .accessibilityLabel("\(k.title), \(status.title)")
+                    }
+                } header: {
+                    Button { model.go(.connections(nil)) } label: {
+                        HStack(spacing: 6) {
+                            Text("Connections")
+                            if model.anyConnectionNeedsAttention { Circle().fill(Theme.attention).frame(width: 6, height: 6) }
+                        }
+                    }.buttonStyle(.plain)
                 }
             }
             .listStyle(.sidebar)
-            Divider()
             if let p = model.progress {
+                Divider()
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(p).font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(2)
                     Spacer()
                 }.padding(.horizontal, 14).padding(.vertical, 8)
             }
-            Button { model.go(.settings(.general)) } label: {
-                Label("Settings", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(model.sidebarItem == nil ? Theme.fillSubtle : Theme.clear)
+        }
+    }
+
+    func courseRow(_ c: Course) -> some View {
+        HStack(spacing: 8) {
+            CourseDot(color: c.color)
+            Text(c.displayName).lineLimit(1)
+        }
+        .tag(SidebarSelection.course(c.id))
+        .contextMenu {
+            Button("Edit…") { model.courseEditor = c }
         }
     }
 }

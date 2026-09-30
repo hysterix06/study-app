@@ -25,7 +25,7 @@ struct MoodleSettings: View {
                     .transition(.opacity)
             }
         }
-        .animation(.smooth(duration: 0.4), value: connected)
+        .animation(.smooth(duration: Theme.motionConnect), value: connected)
         // Held here rather than in the connect card, so the sheet can finish its "Signed in" moment while the card
         // underneath turns into the connected view.
         .sheet(item: $launch) { l in
@@ -607,10 +607,10 @@ struct MoodleLinkGraphic: View {
         }
         .onAppear {
             guard state == .connected || state == .connecting else { return }
-            if animateIn { drawn = 0; withAnimation(.easeOut(duration: 0.8).delay(0.15)) { drawn = 1 } }
+            if animateIn { drawn = 0; withAnimation(.easeOut(duration: Theme.motionConnect * 2).delay(0.15)) { drawn = 1 } }
         }
         .onChange(of: state) { _, new in
-            if new == .connected { drawn = 0; withAnimation(.easeOut(duration: 0.8)) { drawn = 1 } }
+            if new == .connected { drawn = 0; withAnimation(.easeOut(duration: Theme.motionConnect * 2)) { drawn = 1 } }
         }
     }
 
@@ -622,7 +622,7 @@ struct MoodleLinkGraphic: View {
             case .connecting:
                 // Dashes flowing from the school towards Study Tracker while the first import runs.
                 HLine().stroke(Theme.success, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [6, 6], dashPhase: flow))
-                    .onAppear { withAnimation(.linear(duration: 0.6).repeatForever(autoreverses: false)) { flow = 12 } }
+                    .onAppear { withAnimation(.linear(duration: max(Theme.motionConnect * 1.5, 0.01)).repeatForever(autoreverses: false)) { flow = 12 } }
             case .connected:
                 HLine().stroke(Theme.success.opacity(0.18), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 HLine().trim(from: 0, to: drawn).stroke(Theme.success, style: StrokeStyle(lineWidth: 3, lineCap: .round))

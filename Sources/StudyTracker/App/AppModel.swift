@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// Items in the sidebar. Each one opens the last route used under it.
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case today, inbox, calendar, assignments, study, courses
+    case today, inbox, calendar, assignments, study
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
     var icon: String {
@@ -15,12 +15,15 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .calendar: return "calendar"
         case .assignments: return "checklist"
         case .study: return "brain.head.profile"
-        case .courses: return "books.vertical"
         }
     }
     /// ⌘1…⌘5, in sidebar order.
     static let numbered: [SidebarItem] = [.today, .inbox, .calendar, .assignments, .study]
-    static let sidebar: [SidebarItem] = numbered + [.courses]
+}
+
+/// A row in the sidebar: a screen, a course, or a connection.
+enum SidebarSelection: Hashable {
+    case screen(SidebarItem), course(Int), connection(ConnectionKind?)
 }
 
 struct Toast: Identifiable {
@@ -43,7 +46,6 @@ final class AppModel {
     private(set) var forwardStack: [Route] = []
     /// Returning to a sidebar item restores the route last used under it.
     private var lastRoute: [Route.ScreenKey: Route] = [:]
-    private var lastCourseId: Int?
     var showPalette = false
     var focusQuickAdd = 0
     var toast: Toast?
@@ -54,6 +56,9 @@ final class AppModel {
     /// The Activity panel (toolbar), optionally scrolled to one job.
     var showActivity = false
     var activityJobId: Int?
+    /// Bumped to ask the root view to open the Settings window (it holds the `openSettings` action).
+    var settingsRequest = 0
+    var courseEditor: Course?
 
     let claude = ClaudeService()
     var jobs: ClaudeJobRunner!
@@ -176,8 +181,12 @@ final class AppModel {
             activityJobId = jobId
             showActivity = true
             return
-        case .setup:
-            go(.today, replace: replace); return
+        case .settings(let pane):
+            UserDefaults.standard.set(pane.rawValue, forKey: "settings.pane")
+            settingsRequest += 1
+            return
+        case .setup(let step):
+            store.setSetting("setup_step", step.rawValue)
         default: break
         }
         guard r != route else { return }
@@ -209,7 +218,6 @@ final class AppModel {
     private func setRoute(_ r: Route) {
         route = r
         lastRoute[r.screen] = r
-        if case .course(let id, _) = r { lastCourseId = id }
     }
 
     /// Opens a sidebar item at its last route.
@@ -220,34 +228,40 @@ final class AppModel {
         case .calendar: go(lastRoute[.calendar] ?? .calendar(.week, nil))
         case .assignments: go(lastRoute[.assignments] ?? .assignments)
         case .study: go(lastRoute[.study] ?? .study(.lectures))
-        case .courses:
-            let courses = store.courses()
-            let id = lastCourseId.flatMap { id in courses.contains { $0.id == id } ? id : nil } ?? courses.first?.id
-            if let id { go(lastRoute[.course(id)] ?? .course(id, .overview)) } else { go(.course(0, .overview)) }
         }
     }
 
-    var sidebarItem: SidebarItem? {
-        switch route.screen {
-        case .today: return .today
-        case .inbox: return .inbox
-        case .calendar: return .calendar
-        case .assignments: return .assignments
-        case .study: return .study
-        case .course: return .courses
-        case .connections, .settings, .setup: return nil
+    func open(_ selection: SidebarSelection) {
+        switch selection {
+        case .screen(let item): open(item)
+        case .course(let id): go(lastRoute[.course(id)] ?? .course(id, .overview))
+        case .connection(let kind): go(.connections(kind))
         }
+    }
+
+    var sidebarSelection: SidebarSelection? {
+        switch route {
+        case .today: return .screen(.today)
+        case .inbox: return .screen(.inbox)
+        case .calendar, .occurrence: return .screen(.calendar)
+        case .assignments, .assignment: return .screen(.assignments)
+        case .study, .material, .review: return .screen(.study)
+        case .course(let id, _): return .course(id)
+        case .connections(let k): return .connection(k)
+        case .activity, .settings, .setup: return nil
+        }
+    }
+
+    func newCourse() {
+        guard let term = store.currentTerm() else {
+            show("Add a term first in Settings › Terms and breaks.", error: true); go(.settings(.terms)); return
+        }
+        courseEditor = Course(termId: term.id, code: "", name: "", color: store.nextCourseColor())
     }
 
     func openCourse(_ id: Int, tab: CourseTab = .overview) { go(.course(id, tab)) }
     func openAssignment(_ id: Int) { go(.assignment(id)) }
     func openMaterial(_ id: Int) { go(.material(id)) }
-
-    /// The course shown on the course screen; selecting another course is a new history entry.
-    var selectedCourseId: Int? {
-        get { if case .course(let id, _) = route, id != 0 { return id }; return lastCourseId }
-        set { go(.course(newValue ?? 0, newValue == nil ? .overview : courseTab)) }
-    }
 
     var courseTab: CourseTab {
         get { if case .course(_, let tab) = route { return tab }; return .overview }
@@ -306,8 +320,7 @@ final class AppModel {
         case .material(let id): return ["Study", store.material(id)?.title ?? "Material"]
         case .study(let s): return ["Study", s.title]
         case .connections(let k): return ["Connections"] + (k.map { [$0.title] } ?? [])
-        case .settings(let s): return ["Settings", s.title]
-        case .review, .activity, .setup: return []
+        case .review, .activity, .setup, .settings: return []
         }
     }
 

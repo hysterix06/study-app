@@ -1,50 +1,18 @@
 import SwiftUI
 import StudyCore
 
-struct CoursesScreen: View {
+/// A course is a sidebar row; its page is reached by `course/{id}/{tab}`.
+struct CourseScreen: View {
     @Environment(AppModel.self) var model
-    @State private var editing: Course?
+    var courseId: Int
 
     var body: some View {
         let _ = model.revision
-        let courses = model.store.courses(includeArchived: true)
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Courses").font(.stHeading)
-                    Spacer()
-                    Button { newCourse() } label: { Image(systemName: "plus") }.buttonStyle(.borderless).accessibilityLabel("Add course")
-                }.padding(16)
-                List(selection: Binding(get: { model.selectedCourseId }, set: { model.selectedCourseId = $0 })) {
-                    ForEach(courses) { c in
-                        HStack(spacing: 8) {
-                            CourseDot(color: c.color)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(c.displayName).font(.stBodyStrong)
-                                if let sub = c.secondaryName { Text(sub).font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(1) }
-                            }
-                        }
-                        .opacity(c.archived ? 0.5 : 1)
-                        .tag(c.id)
-                    }
-                }
-            }
-            .frame(width: 240)
-            Divider()
-            if let id = model.selectedCourseId ?? courses.first?.id, let c = courses.first(where: { $0.id == id }) {
-                CourseDetail(course: c, onEdit: { editing = c }).id(c.id)
-            } else {
-                EmptyState(text: "Add your courses, or import a timetable and they appear here.", actionTitle: "Add course") { newCourse() }
-            }
+        if let c = model.store.course(courseId) {
+            CourseDetail(course: c, onEdit: { model.courseEditor = c }).id(c.id)
+        } else {
+            EmptyState(text: "Add your courses, or import a timetable and they appear here.", actionTitle: "Add course") { model.newCourse() }
         }
-        .sheet(item: $editing) { c in CourseEditor(course: c) }
-    }
-
-    func newCourse() {
-        guard let term = model.store.currentTerm() else {
-            model.show("Add a term first in Settings › Terms and breaks.", error: true); model.go(.settings(.terms)); return
-        }
-        editing = Course(termId: term.id, code: "", name: "", color: model.store.nextCourseColor())
     }
 }
 
@@ -552,7 +520,7 @@ struct CourseEditor: View {
                     Button("Delete course", role: .destructive) {
                         let name = course.name
                         model.run("Deleted \(name).") { try model.store.trashCourse(course.id) }
-                        model.selectedCourseId = nil
+                        model.go(.today, replace: true)
                         dismiss()
                     }
                 }
@@ -563,8 +531,8 @@ struct CourseEditor: View {
                     course.passMark = Double(pass.replacingOccurrences(of: ",", with: "."))
                     do {
                         let id = try model.store.saveCourse(course)
-                        model.selectedCourseId = id
                         model.refresh()
+                        model.openCourse(id)
                         dismiss()
                     } catch { model.fail(error) }
                 }.buttonStyle(PrimaryButtonStyle()).disabled(course.name.isEmpty).keyboardShortcut(.defaultAction)

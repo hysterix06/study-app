@@ -266,10 +266,7 @@ final class MoodleService {
     }
 
     var moodleCourses: [MoodleCourseInfo] {
-        (JSON.parse(model.store.setting("moodle_courses")) as? [[String: Any]] ?? []).compactMap { d in
-            guard let id = (d["id"] as? NSNumber)?.intValue else { return nil }
-            return MoodleCourseInfo(id: id, shortname: d["shortname"] as? String ?? "", fullname: d["fullname"] as? String ?? "")
-        }
+        MoodleSync.storedCourses(store: model.store)
     }
 }
 

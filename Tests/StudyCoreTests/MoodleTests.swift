@@ -95,3 +95,27 @@ final class MoodleTests: XCTestCase {
         XCTAssertThrowsError(try MoodleClient.token(fromLaunchReply: reply("sig:::<script>")))
     }
 }
+
+extension MoodleTests {
+    func testCreatesCurrentCoursesAndTermFromMoodle() throws {
+        let store = try makeStore()
+        let now = at("2026-09-15", "12:00")
+        let sep = at("2026-09-07", "00:00").timeIntervalSince1970, dec = at("2026-12-18", "00:00").timeIntervalSince1970
+        store.setSetting("moodle_courses", JSON.string([
+            ["id": 11, "shortname": "HM210", "fullname": "Revenue Management", "startdate": Int(sep), "enddate": Int(dec)],
+            ["id": 12, "shortname": "MKT201", "fullname": "Hospitality Marketing", "startdate": Int(sep), "enddate": 0],
+            ["id": 9, "shortname": "OLD100", "fullname": "Last year", "startdate": Int(sep) - 31_536_000, "enddate": Int(sep) - 20_000_000],
+        ]))
+        let r = try MoodleSync.createCoursesAndTerm(store: store, now: now)
+        XCTAssertTrue(r.termCreated)
+        XCTAssertEqual(r.courses, 2)
+        let term = try XCTUnwrap(store.currentTerm())
+        XCTAssertEqual(term.name, "Fall 2026")
+        XCTAssertEqual(term.startDate, d("2026-09-07"))
+        XCTAssertEqual(term.endDate, d("2026-12-18"))
+        XCTAssertEqual(Set(store.courses().compactMap(\.moodleId)), [11, 12])
+        XCTAssertEqual(Set(store.courses().map(\.color)).count, 2, "each course gets its own color")
+        // Running again creates nothing new.
+        XCTAssertEqual(try MoodleSync.createCoursesAndTerm(store: store, now: now).courses, 0)
+    }
+}
