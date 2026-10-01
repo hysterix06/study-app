@@ -31,6 +31,18 @@ public enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Whether a secret is stored, without reading it. Only the secret itself is behind the Keychain's access
+    /// check, so this never asks for the Mac's password and is safe to call while drawing views.
+    public static func exists(_ account: String) -> Bool {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: service,
+                                    kSecAttrAccount as String: account,
+                                    kSecReturnAttributes as String: true,
+                                    kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: AnyObject?
+        return SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess
+    }
+
     public static func delete(_ account: String) {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: service,

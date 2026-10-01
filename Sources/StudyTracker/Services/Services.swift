@@ -208,10 +208,14 @@ final class MoodleService {
     var syncing = false
     /// The latest sync, shown as the result of connecting.
     var lastReport: MoodleSyncReport?
-    init(model: AppModel) { self.model = model }
+    /// Cached because views read it on every redraw (the sidebar's status dots), and the token is only read when syncing.
+    private(set) var hasToken: Bool
+    init(model: AppModel) {
+        self.model = model
+        hasToken = Keychain.exists(MoodleSync.tokenAccount)
+    }
 
     var site: URL? { model.store.setting("moodle_url").flatMap(MoodleClient.normalizeSite) }
-    var hasToken: Bool { Keychain.get(MoodleSync.tokenAccount) != nil }
     var isConnected: Bool { model.store.boolSetting("moodle_enabled") && hasToken }
 
     func signIn(site: String, username: String, password: String) async throws {
@@ -224,6 +228,7 @@ final class MoodleService {
     func useToken(site: String, token: String, method: String = "key") {
         guard let url = MoodleClient.normalizeSite(site) else { return }
         Keychain.set(token.trimmingCharacters(in: .whitespacesAndNewlines), account: MoodleSync.tokenAccount)
+        hasToken = true
         model.store.setSetting("moodle_url", url.absoluteString)
         model.store.setSetting("moodle_auth_method", method)
         model.store.setBool("moodle_needs_signin", false)
@@ -240,6 +245,7 @@ final class MoodleService {
 
     func signOut() {
         Keychain.delete(MoodleSync.tokenAccount)
+        hasToken = false
         model.store.setBool("moodle_enabled", false)
         model.store.setBool("moodle_needs_signin", false)
         model.store.setSetting("moodle_user_name", nil)

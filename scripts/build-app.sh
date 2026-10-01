@@ -82,9 +82,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "→ Signing (ad hoc)"
-codesign --force --sign - "$APP/Contents/MacOS/study-mcp"
-codesign --force --deep --sign - "$APP"
+# An ad-hoc signature changes with every build, so the Keychain treats each build as a new app and asks for the
+# Mac's password again. A real certificate keeps "Always Allow" working across rebuilds. SIGN_IDENTITY overrides.
+SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+if [[ "$SIGN_IDENTITY" == "-" ]]; then echo "→ Signing (ad hoc; expect Keychain prompts after each rebuild)"; else echo "→ Signing as $SIGN_IDENTITY"; fi
+codesign --force --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/study-mcp"
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
 
 if [[ "${1:-}" == "--install" ]]; then
