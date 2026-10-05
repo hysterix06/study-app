@@ -1,9 +1,9 @@
 {
-  "manifest_version": "0.2",
+  "manifest_version": "0.3",
   "name": "study-tracker",
   "display_name": "Study Tracker",
-  "version": "1.0.0",
-  "description": "Lets Claude read your lectures and save concepts, questions, flashcards and study sheets into the Study Tracker app on this Mac.",
+  "version": "1.1.0",
+  "description": "Lets Claude read your lectures and save concepts, questions, flashcards and study sheets into the Study Tracker app on this Mac. Works on the free Claude plan.",
   "long_description": "Study Tracker keeps your timetable, deadlines, course materials and flashcards on your Mac. This extension gives Claude restricted access: it can read your schedule and lectures, and save concepts, practice questions, proposed flashcards, Cornell sheets and gap reports back into the app. It cannot delete anything, and assignments or study blocks it suggests wait for your confirmation. Nothing leaves your Mac except what you share in the conversation.",
   "author": {
     "name": "Study Tracker"
@@ -34,6 +34,7 @@
     { "name": "get_notes", "description": "Cornell sheets, gap reports and notes" },
     { "name": "get_handwriting_captures", "description": "Text read from photos of handwritten notes" },
     { "name": "get_outcomes", "description": "Missed deadlines, retention, study time and grades" },
+    { "name": "get_task_instructions", "description": "Instructions for a Study Tracker job number" },
     { "name": "save_concepts", "description": "Save concepts with source chunks" },
     { "name": "save_questions", "description": "Save practice questions" },
     { "name": "propose_cards", "description": "Propose flashcards for the student to approve" },

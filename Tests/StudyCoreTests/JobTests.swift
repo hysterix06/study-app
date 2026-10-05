@@ -49,7 +49,10 @@ final class JobTests: XCTestCase {
         XCTAssertFalse(ClaudeTask.examPatterns.isFinished(by: "save_note", args: ["kind": "summary"]))
         XCTAssertTrue(ClaudeTask.quiz.isFinished(by: "record_session", args: [:]))
         XCTAssertEqual(Set(ClaudeTask.allCases.map(\.label)).count, ClaudeTask.allCases.count, "one distinct label per task")
-        for t in ClaudeTask.allCases { XCTAssertTrue(t.label.hasSuffix("Claude"), t.label) }
+        // Labels name the task, not the engine: the same button runs on Apple, a cloud model, Claude Code or a pasted answer.
+        for t in AITask.allCases {
+            for brand in ["Claude", "ChatGPT", "Gemini", "Apple", "AI"] { XCTAssertFalse(t.label.contains(brand), t.label) }
+        }
     }
 
     func testInterruptedRunsFail() throws {

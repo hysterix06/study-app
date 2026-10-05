@@ -1,28 +1,31 @@
 import Foundation
 
-/// Claude is one feature (UI remap principle 6): every Claude task is a job with one label, one queue and one
-/// Activity log, whichever way it runs.
+/// AI is one feature (UI remap principle 6): every AI task is a job with one label, one queue and one Activity log,
+/// whichever engine runs it.
 ///
-/// - Automatic: the app runs Claude Code in the background. Queued → Running → Done or Failed.
-/// - Claude Desktop: the app copies the prompt (carrying the job id) and opens Desktop. Handed off → Waiting → Done.
-///   MCP writes tagged with the job id attach their results, and the task's final tool marks the job Done.
-public enum ClaudeTask: String, CaseIterable, Codable {
+/// - Automatic: a built-in engine (Apple, a cloud provider, a local model) or a CLI such as Claude Code runs it in the
+///   background. Queued → Running → Done or Failed.
+/// - Chat: a conversational task in the app's chat panel. Running → Done when its final tool is called.
+/// - Desktop (handoff): the app copies the prompt (carrying the job id) and opens the student's AI app.
+///   Handed off → Waiting → Done. MCP writes tagged with the job id attach their results.
+/// - Paste: the prompt goes to any chatbot and the JSON answer is pasted back. Handed off → Done.
+public enum AITask: String, CaseIterable, Codable {
     case process, extractDeadlines = "extract_deadlines", examPatterns = "exam_patterns", checkDraft = "check_draft"
     case reviewNotes = "review_notes", quiz, recall, explain, practice, weeklyPlan = "weekly_plan"
 
-    /// One label per task; it never changes with run mode.
+    /// One label per task; it never changes with the engine (the engine is shown next to it).
     public var label: String {
         switch self {
-        case .process: return "Process with Claude"
-        case .extractDeadlines: return "Extract deadlines with Claude"
-        case .examPatterns: return "Find exam patterns with Claude"
-        case .checkDraft: return "Check draft with Claude"
-        case .reviewNotes: return "Review my notes with Claude"
-        case .quiz: return "Quiz me with Claude"
-        case .recall: return "Recall with Claude"
-        case .explain: return "Explain it to Claude"
-        case .practice: return "Practice problems with Claude"
-        case .weeklyPlan: return "Plan my week with Claude"
+        case .process: return "Process lecture"
+        case .extractDeadlines: return "Find deadlines"
+        case .examPatterns: return "Analyse past exam"
+        case .checkDraft: return "Check my draft"
+        case .reviewNotes: return "Review my handwritten notes"
+        case .quiz: return "Quiz me"
+        case .recall: return "Recall session"
+        case .explain: return "Explain it back"
+        case .practice: return "Practice problems"
+        case .weeklyPlan: return "Plan my week"
         }
     }
 
@@ -57,7 +60,7 @@ public enum ClaudeTask: String, CaseIterable, Codable {
         }
     }
 
-    /// Tasks that talk with the student always run in Claude Desktop (decision D9).
+    /// Tasks that talk with the student run in a chat: the app's chat panel or the student's AI app.
     public var conversational: Bool {
         switch self {
         case .quiz, .recall, .explain, .checkDraft, .practice: return true
@@ -78,7 +81,9 @@ public enum ClaudeTask: String, CaseIterable, Codable {
     }
 }
 
-public enum JobMode: String, Codable { case automatic, desktop }
+public typealias ClaudeTask = AITask
+
+public enum JobMode: String, Codable { case automatic, desktop, chat, paste }
 
 public enum JobState: String, Codable, CaseIterable {
     case queued, running, handedOff = "handed_off", waiting, done, failed, canceled
@@ -102,12 +107,14 @@ public enum JobState: String, Codable, CaseIterable {
 
 public struct ClaudeJob: Identifiable, Hashable {
     public var id: Int
-    public var task: ClaudeTask
+    public var task: AITask
     public var args: [String: String]
     public var objectKind: String?
     public var objectId: Int?
     public var label: String
     public var mode: JobMode
+    /// "openrouter:model", "apple.ondevice", "cli.claude", "app.cursor"… nil for jobs from before v5.
+    public var engine: String?
     public var state: JobState
     public var createdAt: Date
     public var startedAt: Date?
@@ -116,15 +123,19 @@ public struct ClaudeJob: Identifiable, Hashable {
     /// Items written per tool, e.g. ["save_concepts": 14, "propose_cards": 22].
     public var results: [String: Int]
     public var error: String?
+    public var tokensIn: Int
+    public var tokensOut: Int
+    public var costUSD: Double?
 
     init(row r: Row) {
         id = r.i("id")
-        task = ClaudeTask(rawValue: r.str("task")) ?? .process
+        task = AITask(rawValue: r.str("task")) ?? .process
         args = (try? JSONDecoder().decode([String: String].self, from: Data(r.str("args_json").utf8))) ?? [:]
         objectKind = r.string("object_kind")
         objectId = r.int("object_id")
         label = r.str("label")
         mode = JobMode(rawValue: r.str("mode")) ?? .desktop
+        engine = r.string("engine")
         state = JobState(rawValue: r.str("state")) ?? .failed
         createdAt = ISO.parse(r.str("created_at")) ?? Date()
         startedAt = r.string("started_at").flatMap { ISO.parse($0) }
@@ -132,6 +143,8 @@ public struct ClaudeJob: Identifiable, Hashable {
         resultSummary = r.string("result_summary")
         results = (try? JSONDecoder().decode([String: Int].self, from: Data(r.str("results_json").utf8))) ?? [:]
         error = r.string("error")
+        tokensIn = r.i("tokens_in"); tokensOut = r.i("tokens_out")
+        costUSD = r.double("cost_usd")
     }
 
     /// "Added 14 concepts · 22 cards to approve".
@@ -152,10 +165,10 @@ public struct ClaudeJob: Identifiable, Hashable {
 
 public extension StudyStore {
     @discardableResult
-    func enqueueJob(_ task: ClaudeTask, args: [String: String], objectKind: String?, objectId: Int?, label: String, mode: JobMode) throws -> Int {
+    func enqueueJob(_ task: AITask, args: [String: String], objectKind: String?, objectId: Int?, label: String, mode: JobMode, engine: String? = nil) throws -> Int {
         let json = String(decoding: try JSONEncoder().encode(args), as: UTF8.self)
-        let id = try db.execute("INSERT INTO claude_jobs(task, args_json, object_kind, object_id, label, mode) VALUES(?,?,?,?,?,?)",
-                                [task.rawValue, json, objectKind, objectId, label, mode.rawValue]).lastInsertId
+        let id = try db.execute("INSERT INTO claude_jobs(task, args_json, object_kind, object_id, label, mode, engine) VALUES(?,?,?,?,?,?,?)",
+                                [task.rawValue, json, objectKind, objectId, label, mode.rawValue, engine]).lastInsertId
         audit("job_queued", entity: "job", id: id, detail: label)
         return id
     }
@@ -181,7 +194,7 @@ public extension StudyStore {
     }
 
     /// An active job for the same task and object, so a second click doesn't queue a duplicate.
-    func activeJob(_ task: ClaudeTask, objectKind: String?, objectId: Int?) -> ClaudeJob? {
+    func activeJob(_ task: AITask, objectKind: String?, objectId: Int?) -> ClaudeJob? {
         activeJobs().first { $0.task == task && $0.objectKind == objectKind && $0.objectId == objectId }
     }
 
@@ -214,9 +227,22 @@ public extension StudyStore {
         return false
     }
 
+    /// Moves a job to another engine or mode (e.g. Claude Code went away, or the student picked a different engine).
+    func setJobEngine(_ id: Int, mode: JobMode, engine: String?) throws {
+        try db.execute("UPDATE claude_jobs SET mode = ?, engine = ? WHERE id = ?", [mode.rawValue, engine, id])
+    }
+
+    /// Adds tokens and cost from one engine request to the job.
+    func addJobUsage(_ id: Int, tokensIn: Int, tokensOut: Int, costUSD: Double?) {
+        _ = try? db.execute("""
+            UPDATE claude_jobs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,
+              cost_usd = CASE WHEN ? IS NULL THEN cost_usd ELSE COALESCE(cost_usd, 0) + ? END WHERE id = ?
+            """, [tokensIn, tokensOut, costUSD, costUSD, id])
+    }
+
     /// Jobs left running when the app quit can't be resumed.
     func failInterruptedJobs() {
-        _ = try? db.execute("UPDATE claude_jobs SET state = 'failed', error = 'The app quit before Claude finished.', finished_at = ? WHERE state = 'running'",
+        _ = try? db.execute("UPDATE claude_jobs SET state = 'failed', error = 'The app quit before the AI finished.', finished_at = ? WHERE state = 'running'",
                             [ISO.instant(Date())])
     }
 }

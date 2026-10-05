@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import StudyCore
 import UniformTypeIdentifiers
+import StudyAI
 
 /// Items in the sidebar. Each one opens the last route used under it.
 enum SidebarItem: String, CaseIterable, Identifiable {
@@ -60,8 +61,12 @@ final class AppModel {
     var settingsRequest = 0
     var courseEditor: Course?
 
-    let claude = ClaudeService()
-    var jobs: ClaudeJobRunner!
+    let ai: AIService
+    var jobs: AIJobRunner!
+    /// The open study chat, if any (shown as a sheet).
+    var chat: ChatController?
+    /// A copy-and-paste job waiting for a chatbot's answer.
+    var paste: PasteRequest?
     var notifications: NotificationService!
     var calendarSync: CalendarSyncService!
     var moodle: MoodleService!
@@ -73,17 +78,18 @@ final class AppModel {
 
     init(store: StudyStore) {
         self.store = store
+        ai = AIService(store: store)
         notifications = NotificationService(model: self)
         calendarSync = CalendarSyncService(model: self)
         moodle = MoodleService(model: self)
-        jobs = ClaudeJobRunner(model: self)
+        jobs = AIJobRunner(model: self)
         lastDataVersion = store.db.dataVersion
         store.backupIfOlderThan(hours: 20, reason: "daily")
         watcher = InboxWatcher(folder: store.paths.inbox) { [weak self] urls in
             Task { @MainActor in self?.importFiles(urls, fromInboxFolder: true) }
         }
         watcher?.start()
-        // Notice writes from Claude (another SQLite connection) and refresh.
+        // Notice writes from MCP clients (another SQLite connection) and refresh.
         timers.append(Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.checkExternalChanges() }
         })
@@ -119,6 +125,7 @@ final class AppModel {
 
     func housekeeping() {
         store.backupIfOlderThan(hours: 20, reason: "daily")
+        store.pruneChats(olderThanDays: ai.settings.chatRetentionDays)
         store.purgeTrash()
         Task { await syncFeeds(silent: true) }
         if store.boolSetting("moodle_enabled"), let last = store.setting("moodle_last_sync").flatMap({ ISO.parse($0) }) {
@@ -160,7 +167,7 @@ final class AppModel {
 
     var canUndo: Bool { !undoStack.isEmpty }
 
-    func fail(_ error: Error) { show("\(error)", error: true) }
+    func fail(_ error: Error) { show((error as? LocalizedError)?.errorDescription ?? "\(error)", error: true) }
 
     func run(_ label: String? = nil, link: (title: String, route: Route)? = nil, _ body: () throws -> UndoSnapshot?) {
         do {
@@ -458,12 +465,26 @@ final class AppModel {
         } catch { fail(error) }
     }
 
-    // MARK: Claude
+    // MARK: AI
 
-    func openClaude() {
-        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop") {
-            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    func openChat(job id: Int) {
+        do { chat = try ChatController.open(job: id, model: self) } catch { fail(error) }
+    }
+
+    func openChat(chat id: Int) { chat = ChatController.open(chat: id, model: self) }
+
+    /// A free chat about the student's courses, on the default engine.
+    func newChat() {
+        guard let ref = ai.engine(for: .explain) ?? ai.engineOptions().first(where: { !$0.ref.isCLI })?.ref else {
+            show("Turn on an AI engine first.", error: true, link: ("Settings", .connections(.ai)))
+            return
         }
+        do { chat = try ChatController.newChat(model: self, engine: ref) } catch { fail(error) }
+    }
+
+    /// Opens the AI app handoffs go to (Claude Desktop by default).
+    func openAIApp() {
+        if let app = ai.handoffApp { ai.open(app) } else { go(.connections(.ai)) }
     }
 
     // MARK: Review

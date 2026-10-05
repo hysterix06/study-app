@@ -30,9 +30,11 @@ struct CommandPalette: View {
             PaletteItem(title: "Sync calendars and Moodle", subtitle: "Action", icon: "arrow.clockwise") {
                 Task { await model.syncFeeds(silent: false); await model.moodle.sync(silent: false) }
             },
-            PaletteItem(title: ClaudeTask.weeklyPlan.label, subtitle: "Claude", icon: "sparkles") { model.jobs.run(.weeklyPlan) },
-            PaletteItem(title: "Claude activity", subtitle: "Claude", icon: "sparkles") { model.go(.activity(jobId: nil)) },
-            PaletteItem(title: "Open Claude", subtitle: "Claude", icon: "sparkles") { model.openClaude() },
+            PaletteItem(title: AITask.weeklyPlan.label, subtitle: "AI", icon: "sparkles") { model.jobs.run(.weeklyPlan) },
+            PaletteItem(title: "New AI chat", subtitle: "AI", icon: "bubble.left.and.bubble.right") { model.newChat() },
+            PaletteItem(title: "AI activity", subtitle: "AI", icon: "sparkles") { model.go(.activity(jobId: nil)) },
+            PaletteItem(title: "AI settings", subtitle: "AI", icon: "sparkles") { model.go(.connections(.ai)) },
+            PaletteItem(title: "Open my AI app", subtitle: "AI", icon: "arrow.up.forward.app") { model.openAIApp() },
         ]
         let courses = model.store.courses()
         for c in courses { out.append(PaletteItem(title: c.names.joined(separator: " · "), subtitle: "Course", icon: "books.vertical") { model.openCourse(c.id) }) }

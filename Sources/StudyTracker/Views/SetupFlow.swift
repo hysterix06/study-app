@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import StudyCore
+import StudyAI
 import UniformTypeIdentifiers
 
 /// First launch: a full-window flow instead of an empty Today. Every step can be skipped, progress is saved, and
@@ -42,7 +43,7 @@ struct SetupFlow: View {
         case .moodle: MoodleStep()
         case .term: TermStep()
         case .timetable: TimetableStep()
-        case .claude: ClaudeStep()
+        case .ai: AIStep()
         case .files: FilesStep()
         case .done: DoneStep()
         }
@@ -206,32 +207,96 @@ private struct TimetableStep: View {
     }
 }
 
-private struct ClaudeStep: View {
+private struct AIStep: View {
     @Environment(AppModel.self) var model
+    @State private var consentFor: ProviderDescriptor?
+    @State private var signingIn = false
+
     var body: some View {
-        let svc = model.claude
-        let status = model.connectionStatus(.claude)
+        let _ = model.revision
+        let ai = model.ai
+        let apple = ai.providers.filter(\.isApple)
+        let apps = Connectors.all.filter { ai.isInstalled($0) && $0.id != "other" }
         VStack(alignment: .leading, spacing: 18) {
-            StepHeader(title: "Claude", detail: "Claude reads your lectures through the app's MCP (Model Context Protocol) server and saves concepts, questions and sheets back here. Optional.")
+            StepHeader(title: "AI", detail: "Optional. AI turns lectures into concepts, questions and Cornell sheets, and studies with you. Start free; change it any time in Connections › AI.")
             Panel {
-                HStack { StatusDot(status: status); Text(status.detail ?? status.title).font(.stBodyStrong) }
-                Button(status.isConnected ? "Reconnect Claude Desktop" : "Connect Claude Desktop") {
-                    do { _ = try svc.connectDesktop(store: model.store); model.refresh(); model.show("Connected. Quit and reopen Claude Desktop to load Study Tracker.") }
-                    catch { model.fail(error) }
-                }.buttonStyle(PrimaryButtonStyle()).disabled(svc.mcpBinary == nil)
+                SectionHeader(title: "Free, built in")
+                ForEach(apple) { d in
+                    let status = ai.status(d)
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(d.name).font(.stBodyStrong)
+                            Text(status == .ready || status == .needsConsent ? d.dataUse.label : (status.unavailableReason ?? "")).font(.stSmall).foregroundStyle(Theme.textSecondary)
+                        }
+                        Spacer()
+                        if status == .ready {
+                            let chosen = ai.settings.defaultEngine?.providerId == d.id
+                            Button(chosen ? "Chosen" : "Use this") { ai.settings.defaultEngine = EngineRef(d.id); model.refresh() }
+                                .buttonStyle(PrimaryButtonStyle()).disabled(chosen)
+                        } else if status == .needsConsent {
+                            Button("Turn on") { consentFor = d }.buttonStyle(PrimaryButtonStyle())
+                        }
+                    }
+                }
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Free models online (OpenRouter)").font(.stBodyStrong)
+                        Text("Sign in once for free models such as GPT-OSS, Kimi and Qwen (about 50 requests a day).").font(.stSmall).foregroundStyle(Theme.textSecondary)
+                    }
+                    Spacer()
+                    if ai.status(Catalog.openRouter) == .ready {
+                        Label("Ready", systemImage: "checkmark.circle.fill").font(.stSmall).foregroundStyle(Theme.success)
+                    } else if ai.hasKey(Catalog.openRouter) {
+                        Button("Turn on") { consentFor = Catalog.openRouter }.buttonStyle(QuietButtonStyle())
+                    } else {
+                        Button(signingIn ? "Waiting for browser…" : "Sign in") { signIn() }.buttonStyle(QuietButtonStyle()).disabled(signingIn)
+                    }
+                }
             }
-            Panel {
-                SectionHeader(title: "Run mode")
-                Picker("", selection: Binding(get: { model.jobs.runMode }, set: { model.jobs.runMode = $0 })) {
-                    Text("Automatic").tag(JobMode.automatic)
-                    Text("Claude Desktop").tag(JobMode.desktop)
-                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
-                Text(svc.findCLI() != nil ? "Automatic runs tasks in the background with Claude Code, which was found on this Mac."
-                                          : "Automatic needs Claude Code, which isn't installed; tasks will open in Claude Desktop instead.")
-                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
+            if !apps.isEmpty {
+                Panel {
+                    SectionHeader(title: "AI apps on this Mac")
+                    ForEach(apps.prefix(5)) { c in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(c.name).font(.stBodyStrong)
+                                Text(c.plan).font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(2)
+                            }
+                            Spacer()
+                            if ai.state(c) == .connected { Label("Connected", systemImage: "checkmark.circle.fill").font(.stSmall).foregroundStyle(Theme.success) }
+                            else { Button("Connect") { connect(c) }.buttonStyle(QuietButtonStyle()) }
+                        }
+                    }
+                }
             }
+            Text("Groq, Gemini, Mistral, models on your own computer, Claude or OpenAI with your own key, and more are in Connections › AI.")
+                .font(.stSmall).foregroundStyle(Theme.textTertiary)
+        }
+        .sheet(item: $consentFor) { d in ConsentSheet(provider: d) }
+    }
+
+    func signIn() {
+        signingIn = true
+        Task {
+            do {
+                try await model.ai.signInWithOpenRouter()
+                if model.ai.settings.needsConsent(Catalog.openRouter) { consentFor = Catalog.openRouter }
+            } catch { model.fail(error) }
+            signingIn = false
+            model.refresh()
         }
     }
+
+    func connect(_ c: AIAppConnector) {
+        Task {
+            do { model.show(try await model.ai.connect(c)) } catch { model.fail(error) }
+            model.refresh()
+        }
+    }
+}
+
+extension AIService.ProviderStatus {
+    var unavailableReason: String? { if case .unavailable(let r) = self { return r }; return nil }
 }
 
 private struct FilesStep: View {
@@ -286,7 +351,7 @@ struct SetupItem {
         SetupItem(title: "Connect Moodle", isDone: { $0.moodle.isConnected }, open: { $0.go(.connections(.moodle)) }),
         SetupItem(title: "Add your timetable", isDone: { !$0.store.calendarSources().isEmpty || !$0.store.patterns().isEmpty },
                   open: { $0.go(.connections(.calendars)) }),
-        SetupItem(title: "Connect Claude", isDone: { $0.connectionStatus(.claude).isConnected }, open: { $0.go(.connections(.claude)) }),
+        SetupItem(title: "Set up AI", isDone: { $0.connectionStatus(.ai).isConnected }, open: { $0.go(.connections(.ai)) }),
         SetupItem(title: "Add your first lecture", isDone: { !$0.store.materials().isEmpty }, open: { $0.chooseFilesToImport() }),
         SetupItem(title: "Set grade targets", isDone: { m in m.store.courses().contains { $0.targetGrade != nil } },
                   open: { m in if let c = m.store.courses().first { m.go(.course(c.id, .overview)) } }),

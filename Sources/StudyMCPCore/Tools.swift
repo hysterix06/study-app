@@ -294,6 +294,39 @@ enum ToolCatalog {
              schema: Schema.object([:]), write: false) { _, store in
             .json(store.outcomes().asJSON())
         },
+        Tool(name: "get_task_instructions", title: "Task instructions",
+             description: """
+             The full instructions for a Study Tracker task. When the student says "do Study Tracker job 42" (or pastes a job number), \
+             call this with job: 42 and follow what it returns. Without a job, pass task and its arguments.
+             """,
+             schema: Schema.object([
+                // Not "job_id": the server strips that key from every call to tag writes with their job.
+                "job": Schema.int("The job number the student gave you"),
+                "task": Schema.enumString(AITask.allCases.map(\.rawValue), "Task, when there is no job number"),
+                "material_id": Schema.int("For lecture tasks"), "assignment_id": Schema.int("For check_draft"), "concept_id": Schema.int("For explain"),
+             ]), write: false) { a, store in
+            var args: [String: String] = [:]
+            let task: AITask
+            if let jid = try a.optInt("job") {
+                guard let job = store.job(jid) else { throw ToolError.notFound("Job \(jid) does not exist.", hint: "Ask the student to copy the job again from Study Tracker.") }
+                guard job.state.isActive else { throw ToolError("CONFLICT", "Job \(jid) is already \(job.state.title.lowercased()).", hint: "Ask the student to start it again.") }
+                task = job.task
+                args = job.args
+                args["job_id"] = "\(jid)"
+            } else {
+                guard let raw = try a.optString("task", max: 40), let t = AITask(rawValue: raw) else {
+                    throw ToolError.invalid("Pass job, or task with its arguments.")
+                }
+                task = t
+                for k in ["material_id", "assignment_id", "concept_id"] { if let v = try a.optInt(k) { args[k] = "\(v)" } }
+                if t == .quiz, let m = args["material_id"] { args = ["scope": "material", "id": m] }
+            }
+            let text: String
+            do { text = try Prompts.render(task.prompt, args: args, store: store) } catch {
+                throw ToolError.invalid("\(error)")
+            }
+            return .json(["task": task.rawValue, "title": task.label, "instructions": text])
+        },
     ]
 
     static let writeTools: [Tool] = [

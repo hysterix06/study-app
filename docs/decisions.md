@@ -114,6 +114,27 @@ Moodle deadlines are confirmed directly by default (a setting). User edits are p
 ## D16. Things deliberately left out
 
 - **Writing back to Moodle or Outlook.** It's a non-goal, and the risk isn't worth it.
-- **An in-app AI API key.** D9 covers the need without one.
+- **An in-app AI API key.** D9 covers the need without one. *Reversed by D17.*
 - **An iPad app.** `StudyCore` is ready for one later.
 - **Mobile review.** Anki export (.tsv) covers it without building a phone app.
+
+## D17. AI everywhere: built-in engines, any AI app, any chatbot
+
+**Was:** Claude only, through Claude Desktop (MCP) or `claude -p` (D9, D13, D16).
+
+**Now:** one job queue with many engines, and three editions planned (Mac App Store, iOS, and a minimal direct download for macOS, Windows and Linux). New target `StudyAI` holds it all, portable except code behind `canImport`.
+
+- **Built-in engines** (`Provider.swift`): Apple's on-device model, Apple Private Cloud Compute, OpenRouter, Groq, Gemini, Mistral, Ollama (local and cloud), LM Studio, OpenAI, DeepSeek, and Anthropic. One OpenAI-compatible client covers most of them; Anthropic uses raw HTTP (no Swift SDK) and replays assistant turns verbatim so thinking blocks stay valid; Apple's models run tools inside their own session.
+- **Free by default.** With no choice made, the app picks Apple's cloud model (App Store builds), then the on-device model, then Claude Code (as before), then any free engine. Apple's cloud model needs the `com.apple.developer.private-cloud-compute` entitlement, which Apple only grants to App Store apps in the Small Business Program, so the direct download can't use it.
+- **Pipelines, not agents, for background work** (`Pipelines.swift`). The app reads the lecture, asks for JSON, checks it, and saves through the MCP tools. 2-6 requests per lecture instead of ~20, so free tiers (OpenRouter: 50 a day) and small models work. Measured on this Mac (M2, macOS 27): the on-device model processed a 4-slide lecture in 2 requests and 51 s (4 concepts, 16 questions, 3 cards, a sheet).
+- **Same rules for every engine.** In-app engines call the tools through `MCPServer.callTool` in-process (`MCPToolHost`), as audit actor `ai`. Each task gets only the tools it needs (`AITask.toolNames`); all 26 tools overflow the on-device model's 4k context.
+- **In-app chat** for recall, quizzes, Feynman, draft checks, practice and handwriting review. Flashcard ratings come from buttons the student taps (an app-only `ask_for_rating` tool); the model never sees `log_review`.
+- **Your AI apps** (`Connectors.swift`): one-click connection for Claude Desktop, Claude Code, ChatGPT's Codex tab and the Codex CLI, VS Code with Copilot, Cursor, LM Studio, Windsurf, Copilot CLI and Gemini CLI; guided setup for Zed, Perplexity and others. Order of preference: the app's own CLI or install link, then a strict-JSON edit (key order kept, three backups, commented JSONC files never rewritten), then a snippet. Status is real: the server records each client's name, so cards say "Last used 2 min ago". ChatGPT's normal chat, the Gemini app, Brave Leo and Le Chat can't use a local server; the app says so.
+- **Copy for any chatbot** (`PastePrompts.swift`): lecture and syllabus tasks produce a self-contained prompt and import the pasted JSON through the same checks.
+- **Consent, money, keys.** Each cloud provider needs the student's agreement once, with a plain data-use label; OpenRouter routes only to providers that don't train unless the student allows it. Gemini's free tier is marked unavailable in the EEA, UK and Switzerland (Google's terms). Paid engines stop at a monthly cap ($5 default); every job stops at 600k tokens. Keys live in the Keychain.
+- **MCP server:** dual-era (2026-07-28 `server/discover` and per-request `_meta`, plus `initialize` for 2025-11-25 and earlier), and a new read tool, `get_task_instructions(job)`, because ChatGPT/Codex don't show MCP prompts. MCPB manifest 0.3; one version number in `MCPServer.swift`.
+
+**Deliberately not done:** reverse-engineering consumer chat endpoints (Brave Leo, duck.ai, chatgpt.com) or reusing other apps' OAuth tokens: against their terms, and accounts get blocked. A hosted proxy paying for a free model is left for later (it would be one more provider). Codex and Copilot CLIs are offered as MCP connections, not background runners, until their headless flags are verified. Anthropic's rules for using a Claude plan through `claude -p` changed three times in 2026; Claude Code is labelled as using the student's plan and is never the only engine.
+
+**Open (needs an Apple Developer account and devices):** whether the MCP helper inside a sandboxed App Store build can be launched by Claude Desktop and reach an App Group database (fallback: a separate notarized "Connector" download); PCC quotas in practice; iOS build; Linux/Windows compile of the portable targets.
+

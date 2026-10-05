@@ -113,9 +113,35 @@ public struct ThemeSpec: Hashable, Codable, Identifiable {
     public func tokens(dark: Bool) -> TokenSet { dark ? self.dark : light }
 }
 
+/// Light, dark, or follow macOS. Chosen separately from the theme.
+public enum AppearanceMode: String, CaseIterable, Codable {
+    case system, light, dark
+    public var label: String {
+        switch self {
+        case .system: return "Match system"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+}
+
 public enum ThemeCatalog {
-    public static let all: [ThemeSpec] = [paper]
+    public static let all: [ThemeSpec] = [paper, graphite, library, fjord, mono, highContrast]
     public static func theme(_ id: String?) -> ThemeSpec { all.first { $0.id == id } ?? paper }
+
+    private static let lightCourses = ["6B7A8F", "708976", "A9785E", "4F7CA8", "8C6A93", "96814E", "5F7D4E", "B3707A"]
+
+    /// A token set from opaque hex colors; secondary and tertiary text, hairlines and fills are the text color at an opacity.
+    private static func tokens(dark: Bool, canvas: String, surface: String, raised: String, sidebar: String, text: String,
+                               secondary: Double = 0.70, tertiary: Double = 0.56, hairline: Double = 0.10, fill: Double = 0.045,
+                               attention: String, success: String, focus: String) -> TokenSet {
+        TokenSet(
+            dark: dark, canvas: .hex(canvas), surface: .hex(surface), surfaceRaised: .hex(raised), sidebar: .hex(sidebar),
+            textPrimary: .hex(text), textSecondary: .hex(text, secondary), textTertiary: .hex(text, tertiary),
+            hairline: .hex(text, hairline), fillSubtle: .hex(text, fill),
+            attention: .hex(attention), success: .hex(success), focusRing: .hex(focus),
+            courses: (dark ? CoursePalette.allCases.map(\.hex) : lightCourses).map { .hex($0) })
+    }
 
     /// Today's look: system backgrounds and label-based grays, tuned so every text pair passes WCAG AA.
     public static let paper = ThemeSpec(
@@ -143,4 +169,44 @@ public enum ThemeCatalog {
             focusRing: .system(.accent, approx: RGBA(hex: "3B8CF2")),
             courses: CoursePalette.allCases.map { .hex($0.hex) }),
         font: .system, heavierText: false, radiusCard: 10, radiusRow: 7, glass: false, bodyContrast: 4.5)
+
+    public static let graphite = ThemeSpec(
+        id: "graphite", name: "Graphite", character: "Cool grays, calm",
+        light: tokens(dark: false, canvas: "F4F5F7", surface: "FFFFFF", raised: "FFFFFF", sidebar: "EBECEF", text: "15171A",
+                      attention: "C8323A", success: "1A7543", focus: "3B6FD8"),
+        dark: tokens(dark: true, canvas: "16181C", surface: "1E2126", raised: "24272D", sidebar: "1B1D21", text: "E8EAED",
+                     attention: "FF6369", success: "3DCB7F", focus: "5B8DEF"),
+        font: .system, heavierText: false, radiusCard: 10, radiusRow: 7, glass: false, bodyContrast: 4.5)
+
+    public static let library = ThemeSpec(
+        id: "library", name: "Library", character: "Warm paper, bookish",
+        light: tokens(dark: false, canvas: "FAF6EE", surface: "FFFDF8", raised: "FFFFFF", sidebar: "F2ECDF", text: "2A2118",
+                      secondary: 0.72, tertiary: 0.58, attention: "9B2C2C", success: "2F6B3A", focus: "8A5A2B"),
+        dark: tokens(dark: true, canvas: "1B1612", surface: "241E19", raised: "2B241E", sidebar: "17130F", text: "EDE3D3",
+                     secondary: 0.72, tertiary: 0.58, attention: "E0716B", success: "86C07F", focus: "D2A06A"),
+        font: .serifHeadings, heavierText: false, radiusCard: 8, radiusRow: 6, glass: false, bodyContrast: 4.5)
+
+    public static let fjord = ThemeSpec(
+        id: "fjord", name: "Fjord", character: "Cool blue-gray, soft",
+        light: tokens(dark: false, canvas: "F2F5F8", surface: "FFFFFF", raised: "FFFFFF", sidebar: "E8EDF2", text: "1B2530",
+                      attention: "C2421A", success: "1E7349", focus: "2F7BC0"),
+        dark: tokens(dark: true, canvas: "111820", surface: "18212B", raised: "1E2833", sidebar: "0E141B", text: "DCE4EC",
+                     attention: "FF7A52", success: "4CCB86", focus: "6AA8E0"),
+        font: .rounded, heavierText: false, radiusCard: 14, radiusRow: 10, glass: false, bodyContrast: 4.5)
+
+    public static let mono = ThemeSpec(
+        id: "mono", name: "Mono", character: "Terminal-like, dense",
+        light: tokens(dark: false, canvas: "FFFFFF", surface: "F5F5F5", raised: "FFFFFF", sidebar: "F0F0F0", text: "000000",
+                      attention: "A85A00", success: "1D6B2F", focus: "000000"),
+        dark: tokens(dark: true, canvas: "000000", surface: "111111", raised: "161616", sidebar: "0A0A0A", text: "FFFFFF",
+                     attention: "FFB020", success: "3DDC84", focus: "FFFFFF"),
+        font: .monospaced, heavierText: false, radiusCard: 2, radiusRow: 2, glass: false, bodyContrast: 4.5)
+
+    public static let highContrast = ThemeSpec(
+        id: "high-contrast", name: "High Contrast", character: "Accessibility first",
+        light: tokens(dark: false, canvas: "FFFFFF", surface: "FAFAFA", raised: "FFFFFF", sidebar: "F2F2F2", text: "000000",
+                      secondary: 0.82, tertiary: 0.66, hairline: 0.35, fill: 0.07, attention: "9A001C", success: "07571F", focus: "0040C0"),
+        dark: tokens(dark: true, canvas: "000000", surface: "0D0D0D", raised: "141414", sidebar: "0A0A0A", text: "FFFFFF",
+                     secondary: 0.82, tertiary: 0.66, hairline: 0.35, fill: 0.10, attention: "FF8080", success: "4AE08A", focus: "7FB2FF"),
+        font: .system, heavierText: true, radiusCard: 10, radiusRow: 7, glass: false, bodyContrast: 7)
 }

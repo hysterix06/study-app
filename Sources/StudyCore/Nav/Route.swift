@@ -83,7 +83,7 @@ public enum Route: Hashable, Codable {
             self = .review(courseId: id)
         case ("connections", 0): self = .connections(nil)
         case ("connections", 1):
-            guard let k = ConnectionKind(rawValue: rest[0]) else { return nil }
+            guard let k = ConnectionKind(name: rest[0]) else { return nil }
             self = .connections(k)
         case ("activity", 0): self = .activity(jobId: nil)
         case ("activity", 1):
@@ -95,7 +95,7 @@ public enum Route: Hashable, Codable {
             self = .settings(s)
         case ("setup", 0): self = .setup(.welcome)
         case ("setup", 1):
-            guard let s = SetupStep(rawValue: rest[0]) else { return nil }
+            guard let s = SetupStep(name: rest[0]) else { return nil }
             self = .setup(s)
         default: return nil
         }
@@ -160,15 +160,20 @@ public enum StudySegment: String, CaseIterable, Identifiable, Codable, Sendable 
 }
 
 public enum ConnectionKind: String, CaseIterable, Identifiable, Codable, Sendable {
-    case moodle, calendars, claude, apple
+    case moodle, calendars, ai, apple
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .moodle: return "Moodle"
         case .calendars: return "Calendars"
-        case .claude: return "Claude"
+        case .ai: return "AI"
         case .apple: return "Apple Calendar"
         }
+    }
+
+    /// Also accepts names from older links ("claude" is now "ai").
+    public init?(name: String) {
+        self.init(rawValue: name == "claude" ? "ai" : name)
     }
 }
 
@@ -189,6 +194,11 @@ public enum SettingsPane: String, CaseIterable, Identifiable, Codable, Sendable 
 }
 
 public enum SetupStep: String, CaseIterable, Identifiable, Codable, Sendable {
-    case welcome, moodle, term, timetable, claude, files, done
+    case welcome, moodle, term, timetable, ai, files, done
     public var id: String { rawValue }
+
+    /// Also accepts names saved by older versions ("claude" is now "ai").
+    public init?(name: String) {
+        self.init(rawValue: name == "claude" ? "ai" : name)
+    }
 }

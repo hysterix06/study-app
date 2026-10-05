@@ -44,6 +44,7 @@ struct SettingsWindow: View {
                 .tag(p)
             }
         }
+        .scrollContentBackground(.hidden)
         .frame(width: 720, height: 560)
     }
 }
@@ -286,89 +287,110 @@ struct FeedSheet: View {
     }
 }
 
-// MARK: Claude
+// MARK: Appearance and advanced
 
-struct ClaudeSettings: View {
-    @Environment(AppModel.self) var model
+/// Theme grid with light and dark previews, and the Match system / Light / Dark control.
+struct AppearanceSettings: View {
     var body: some View {
-        let svc = model.claude
-        let state = svc.connectionState()
-        let cli = svc.findCLI()
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Claude reads your lectures through a small local server (MCP) and saves concepts, questions and sheets back here. The app works fully without it.")
-                .font(.stBody).foregroundStyle(Theme.textSecondary)
+        @Bindable var theme = ThemeStore.shared
+        VStack(alignment: .leading, spacing: 14) {
             Panel {
-                HStack {
-                    Image(systemName: state == .connected || state == .extensionInstalled ? "checkmark.circle.fill" : "circle.dashed")
-                    Text(stateText(state)).font(.stBodyStrong)
-                    Spacer()
+                SectionHeader(title: "Appearance")
+                Picker("Appearance", selection: $theme.mode) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
-                HStack {
-                    Button(state == .connected ? "Reconnect" : "Connect to Claude Desktop") {
-                        do {
-                            let backup = try svc.connectDesktop(store: model.store)
-                            model.refresh()
-                            model.show("Connected. Quit and reopen Claude Desktop to load Study Tracker." + (backup != nil ? " Your previous config was backed up." : ""))
-                        } catch { model.fail(error) }
-                    }.buttonStyle(PrimaryButtonStyle()).disabled(svc.mcpBinary == nil)
-                    if svc.mcpbBundle != nil {
-                        Button("Install as extension instead") { if !svc.installExtension() { model.show("Claude Desktop was not found.", error: true) } }.buttonStyle(QuietButtonStyle())
-                    }
-                    Button("Copy config snippet") {
-                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(svc.configSnippet(store: model.store), forType: .string)
-                        model.show("Config snippet copied.")
-                    }.buttonStyle(QuietButtonStyle())
-                    if state == .connected || state != .notConnected {
-                        Button("Disconnect") { try? svc.disconnectDesktop(); model.refresh() }.buttonStyle(.borderless)
-                    }
-                }
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 360)
             }
             Panel {
-                SectionHeader(title: "Run mode")
-                Picker("", selection: Binding(get: { model.jobs.runMode }, set: { model.jobs.runMode = $0 })) {
-                    Text("Automatic").tag(JobMode.automatic)
-                    Text("Claude Desktop").tag(JobMode.desktop)
-                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
-                Text(model.jobs.runMode == .automatic
-                     ? "Tasks run in the background with Claude Code (your own Claude plan), one at a time. Conversations like recall, quizzes and draft checks still open in Claude Desktop."
-                     : "Every task copies its prompt and opens Claude Desktop. The job finishes when Claude saves its results.")
-                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
-                row("Claude Code", cli?.path ?? "Not found. Automatic tasks go to Claude Desktop until it's installed.")
-                Toggle("Process new lectures automatically once filed", isOn: boolBinding(model, "auto_process")).disabled(cli == nil)
-                HStack {
-                    Button("Look for Claude Code again") { svc.resetCLICache(); model.refresh() }.buttonStyle(.borderless).font(.stSmall)
-                    Button(ClaudeTask.weeklyPlan.label) { model.jobs.run(.weeklyPlan) }.buttonStyle(QuietButtonStyle())
+                SectionHeader(title: "Theme")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
+                    ForEach(ThemeCatalog.all) { spec in
+                        ThemeTile(spec: spec, selected: spec.id == theme.spec.id) { theme.spec = spec }
+                    }
                 }
+                Text("Every theme has a light and a dark version, and all text meets WCAG AA contrast.").font(.stSmall).foregroundStyle(Theme.textTertiary)
             }
-            Panel { ActivityList(limit: 100) }
-        }
-    }
-
-    func stateText(_ s: ClaudeService.ConnectionState) -> String {
-        switch s {
-        case .connected: return "Connected to Claude Desktop"
-        case .extensionInstalled: return "Installed as a Claude Desktop extension"
-        case .stalePath(let p): return "Connected, but pointing at an old location (\(p)). Reconnect to fix."
-        case .notConnected: return model.claude.claudeDesktopInstalled ? "Not connected yet" : "Claude Desktop is not installed"
-        }
-    }
-
-    func row(_ k: String, _ v: String) -> some View {
-        HStack(alignment: .top) {
-            Text(k).font(.stSmall).foregroundStyle(Theme.textSecondary).frame(width: 160, alignment: .leading)
-            Text(v).font(.stSmall).textSelection(.enabled).lineLimit(3)
         }
     }
 }
 
-// MARK: Appearance and advanced
+struct ThemeTile: View {
+    var spec: ThemeSpec
+    var selected: Bool
+    var action: () -> Void
 
-/// Themes arrive in a later step; until then Paper follows the system appearance.
-struct AppearanceSettings: View {
     var body: some View {
-        Panel {
-            SectionHeader(title: "Theme")
-            Text("Paper · follows the system's light or dark appearance.").font(.stBody)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    ThemePreview(spec: spec).environment(\.colorScheme, .light)
+                    ThemePreview(spec: spec).environment(\.colorScheme, .dark)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(spec.name).font(.stBodyStrong)
+                    Text(spec.character).font(.stSmall).foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: Theme.corner(10)).fill(selected ? Theme.fillSubtle.opacity(2) : Theme.clear))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner(10)).strokeBorder(selected ? Theme.focusRing : Theme.hairline, lineWidth: selected ? 2 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(spec.name) theme")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// A miniature Today screen drawn with one theme in one color scheme.
+struct ThemePreview: View {
+    var spec: ThemeSpec
+
+    var body: some View {
+        let card = CGFloat(spec.radiusCard) * 0.5, row = CGFloat(spec.radiusRow) * 0.5
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(0..<3) { i in
+                    HStack(spacing: 3) {
+                        Circle().fill(Theme.course(CoursePalette.allCases[i * 2].rawValue)).frame(width: 4, height: 4)
+                        Capsule().fill(Theme.textTertiary).frame(width: 14, height: 2.5)
+                    }
+                }
+            }
+            .padding(5).frame(width: 30, alignment: .topLeading).frame(maxHeight: .infinity, alignment: .top)
+            .background(spec.systemSidebar ? AnyShapeStyle(Theme.fillSubtle) : AnyShapeStyle(Theme.sidebar))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Aa").font(.system(size: 11, weight: spec.heavierText ? .bold : .semibold, design: design)).foregroundStyle(Theme.textPrimary)
+                Capsule().fill(Theme.textSecondary).frame(width: 34, height: 2.5)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 3) {
+                        Circle().fill(Theme.course(CoursePalette.ocean.rawValue)).frame(width: 4, height: 4)
+                        Capsule().fill(Theme.textPrimary).frame(width: 20, height: 2.5)
+                        Spacer(minLength: 0)
+                        RoundedRectangle(cornerRadius: row).fill(Theme.attention).frame(width: 9, height: 4)
+                    }
+                    Capsule().fill(Theme.textTertiary).frame(width: 26, height: 2.5)
+                }
+                .padding(4)
+                .background(RoundedRectangle(cornerRadius: card).fill(Theme.surface))
+                .overlay(RoundedRectangle(cornerRadius: card).strokeBorder(Theme.hairline))
+            }
+            .padding(5).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(height: 62).frame(maxWidth: .infinity)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.hairline))
+        .environment(\.themeSpec, spec)
+        .accessibilityHidden(true)
+    }
+
+    var design: Font.Design {
+        switch spec.font {
+        case .system: return .default
+        case .rounded: return .rounded
+        case .monospaced: return .monospaced
+        case .serifHeadings: return .serif
         }
     }
 }
@@ -376,17 +398,17 @@ struct AppearanceSettings: View {
 struct AdvancedSettings: View {
     @Environment(AppModel.self) var model
     var body: some View {
-        let svc = model.claude
         Panel {
             SectionHeader(title: "Status")
             row("Database", model.store.paths.database.path)
-            row("MCP server", svc.mcpBinary?.path ?? "Not found (build the app bundle)")
+            row("MCP server", model.ai.mcpBinary?.path ?? "Not found (build the app bundle)")
+            row("Edition", model.ai.edition == .macAppStore ? "Mac App Store" : "Direct download")
             row("Schema version", "database \(model.store.db.userVersion) · server expects \(Migrations.currentVersion) · \(model.store.db.userVersion == Migrations.currentVersion ? "match" : "MISMATCH")")
             row("Version", appVersion)
         }
         Panel {
             SectionHeader(title: "Setup")
-            Text("Run first-run setup again to connect Moodle, a timetable or Claude.").font(.stSmall).foregroundStyle(Theme.textSecondary)
+            Text("Run first-run setup again to connect Moodle, a timetable or AI.").font(.stSmall).foregroundStyle(Theme.textSecondary)
             Button("Run setup again") { model.go(.setup(.welcome)) }.buttonStyle(QuietButtonStyle())
         }
     }
@@ -539,7 +561,7 @@ struct DataSettings: View {
             }
             Panel {
                 SectionHeader(title: "Backups")
-                Text("A copy is made every day (the last 14 are kept) and before Claude's first change in each session.").font(.stSmall).foregroundStyle(Theme.textSecondary)
+                Text("A copy is made every day (the last 14 are kept) and before the AI's first change in each session.").font(.stSmall).foregroundStyle(Theme.textSecondary)
                 HStack {
                     Text(model.store.latestBackupDate().map { "Last backup \(RelativeTime.describe($0))" } ?? "No backup yet").font(.stBody)
                     Spacer()

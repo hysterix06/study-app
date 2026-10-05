@@ -1,5 +1,6 @@
 import SwiftUI
 import StudyCore
+import StudyAI
 
 /// What each connection is doing, shown as a dot in the sidebar and a card on the Connections screen.
 enum ConnectionStatus: Equatable {
@@ -38,13 +39,16 @@ extension AppModel {
             guard !sources.isEmpty else { return .notConnected }
             if let bad = sources.first(where: { ($0.lastStatus ?? "").hasPrefix("Failed") }) { return .needsAttention("\(bad.name) could not be updated") }
             return .connected("\(sources.count) calendar\(sources.count == 1 ? "" : "s")")
-        case .claude:
-            switch claude.connectionState() {
-            case .connected, .extensionInstalled:
-                return .connected(claude.findCLI() != nil ? "Claude Desktop and Claude Code" : "Claude Desktop")
-            case .stalePath: return .needsAttention("Reconnect to Claude Desktop")
-            case .notConnected: return claude.findCLI() != nil ? .connected("Claude Code") : .notConnected
+        case .ai:
+            let stale = Connectors.all.filter { if case .stale = ai.state($0) { return true }; return false }
+            if let s = stale.first { return .needsAttention("Reconnect \(s.name)") }
+            if let chosen = ai.settings.defaultEngine, !ai.engineOptions().contains(where: { $0.ref.providerId == chosen.providerId }) {
+                return .needsAttention("\(chosen.displayName) needs attention")
             }
+            let engine = ai.engine(for: .process)?.displayName
+            let apps = Connectors.all.filter { ai.state($0) == .connected || ai.lastUsed($0) != nil }.map(\.name)
+            let parts = ([engine] + apps.prefix(2).map { Optional($0) }).compactMap { $0 }
+            return parts.isEmpty ? .notConnected : .connected(parts.joined(separator: " · "))
         case .apple:
             let cal = store.boolSetting("calendar_sync_enabled"), rem = store.boolSetting("reminders_sync_enabled")
             guard cal || rem else { return .notConnected }
@@ -60,7 +64,7 @@ extension ConnectionKind {
         switch self {
         case .moodle: return "graduationcap"
         case .calendars: return "calendar.badge.plus"
-        case .claude: return "sparkles"
+        case .ai: return "sparkles"
         case .apple: return "applelogo"
         }
     }
@@ -69,7 +73,7 @@ extension ConnectionKind {
         switch self {
         case .moodle: return "Courses, deadlines, grades and files from your school."
         case .calendars: return "Your timetable, and busy time the planner works around."
-        case .claude: return "Claude reads your lectures and saves concepts, questions and sheets back here."
+        case .ai: return "Free built-in AI, or your own AI app, turns lectures into concepts, questions and sheets."
         case .apple: return "Classes, deadlines and study blocks on your iPhone and Watch."
         }
     }
@@ -78,7 +82,7 @@ extension ConnectionKind {
         switch self {
         case .moodle: return "Connect Moodle"
         case .calendars: return "Add timetable"
-        case .claude: return "Connect Claude"
+        case .ai: return "Set up AI"
         case .apple: return "Turn on"
         }
     }
@@ -115,7 +119,7 @@ struct ConnectionsScreen: View {
                     switch kind {
                     case .moodle: MoodleSettings()
                     case .calendars: CalendarSettings()
-                    case .claude: ClaudeSettings()
+                    case .ai: AISettingsView()
                     case .apple: AppleSyncSettings()
                     }
                 } else {

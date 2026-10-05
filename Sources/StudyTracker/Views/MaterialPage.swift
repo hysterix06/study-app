@@ -87,7 +87,7 @@ private struct MaterialProblem: View {
     /// Imports the stored file again as a fresh material; the old one goes to Recently Deleted.
     func retry() {
         guard let sp = m.storedPath else { return }
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("retry-\(UUID().uuidString)-\(m.originalFilename)")
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("retry-\(UUID().uuidString)-\(m.originalFilename ?? URL(fileURLWithPath: sp).lastPathComponent)")
         do {
             try FileManager.default.copyItem(at: model.store.paths.absolute(sp), to: tmp)
             _ = try model.store.trashMaterial(m.id)
@@ -125,9 +125,9 @@ struct StepTimeline: View {
         let done: (String) -> Bool = { kind in sessions.contains { $0.kind == kind } }
         let recall = sessions.first { $0.kind == "recall" && ($0.itemsTotal ?? 0) > 0 }
         let steps = [
-            Step(id: 1, title: "Recall", detail: "Write what you remember before looking. Claude compares it with the lecture.",
+            Step(id: 1, title: "Recall", detail: "Write what you remember before looking. The AI compares it with the lecture.",
                  summary: recall.map { "Recalled \($0.itemsCorrect ?? 0) of \($0.itemsTotal ?? 0) concepts" } ?? "Recall session done", done: done("recall")),
-            Step(id: 2, title: "Learn", detail: "Claude reads the lecture and builds concepts, questions and your Cornell sheet.",
+            Step(id: 2, title: "Learn", detail: "The AI reads the lecture and builds concepts, questions and your Cornell sheet.",
                  summary: "\(concepts.count) concepts · \(cards.count) cards", done: m.processedAt != nil),
             Step(id: 3, title: "Write", detail: "Fill the sheet by hand from memory, then photograph it for a gap check.",
                  summary: "\(captures.count) photo\(captures.count == 1 ? "" : "s") checked", done: !captures.isEmpty),
@@ -182,27 +182,27 @@ struct StepTimeline: View {
     @ViewBuilder func actions(_ id: Int, sheet: Note?) -> some View {
         switch id {
         case 1:
-            ClaudeButton(task: .recall) { model.jobs.run(.recall, material: m.id) }.buttonStyle(PrimaryButtonStyle())
+            AIButton(task: .recall) { model.jobs.run(.recall, material: m.id) }.buttonStyle(PrimaryButtonStyle())
                 .disabled(m.processedAt == nil)
         case 2:
             if m.processedAt == nil {
-                ClaudeButton(task: .process) { model.jobs.run(.process, material: m.id) }.buttonStyle(PrimaryButtonStyle())
+                AIButton(task: .process) { model.jobs.run(.process, material: m.id) }.buttonStyle(PrimaryButtonStyle())
             } else if let c = m.courseId {
                 Button("Open concepts") { model.openCourse(c, tab: .concepts) }.buttonStyle(QuietButtonStyle())
-                ClaudeButton(task: .process) { model.jobs.run(.process, material: m.id) }.buttonStyle(.borderless)
+                AIButton(task: .process) { model.jobs.run(.process, material: m.id) }.buttonStyle(.borderless)
             }
         case 3:
             if let sheet { Button("Print sheet") { model.exportSheet(sheet, print: true) }.buttonStyle(PrimaryButtonStyle()) }
             Button("Check my notes") { model.handwritingMaterialId = m.id }.buttonStyle(QuietButtonStyle())
         default:
             Button("Start review") { model.startReview(courseId: m.courseId) }.buttonStyle(PrimaryButtonStyle())
-            ClaudeButton(task: .quiz) { model.jobs.run(.quiz, material: m.id) }.buttonStyle(.borderless)
-            ClaudeButton(task: .practice) { model.jobs.run(.practice, material: m.id) }.buttonStyle(.borderless)
+            AIButton(task: .quiz) { model.jobs.run(.quiz, material: m.id) }.buttonStyle(.borderless)
+            AIButton(task: .practice) { model.jobs.run(.practice, material: m.id) }.buttonStyle(.borderless)
         }
     }
 }
 
-/// What this file has produced: concepts, cards, sessions and Claude's notes.
+/// What this file has produced: concepts, cards, sessions and AI notes.
 private struct MaterialStudyData: View {
     @Environment(AppModel.self) var model
     let m: Material
@@ -290,7 +290,7 @@ private struct MaterialDeadlines: View {
             Panel {
                 SectionHeader(title: "Deadlines from this file · \(extracted.count)")
                 if extracted.isEmpty {
-                    Text("Claude can read this \(m.role.label.lowercased()) and list every graded item with its date and weight, for you to confirm.")
+                    Text("The AI can read this \(m.role.label.lowercased()) and list every graded item with its date and weight, for you to confirm.")
                         .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 }
                 ForEach(extracted) { a in
@@ -301,7 +301,7 @@ private struct MaterialDeadlines: View {
                         }
                     }.buttonStyle(.plain)
                 }
-                ClaudeButton(task: .extractDeadlines) { model.jobs.run(.extractDeadlines, material: m.id) }
+                AIButton(task: .extractDeadlines) { model.jobs.run(.extractDeadlines, material: m.id) }
                     .buttonStyle(extracted.isEmpty ? AnyButtonStyle(PrimaryButtonStyle()) : AnyButtonStyle(QuietButtonStyle()))
             }
             if !uses.isEmpty {
@@ -316,7 +316,7 @@ private struct MaterialDeadlines: View {
     }
 }
 
-/// Past exams: the patterns Claude found, and practice in the same style.
+/// Past exams: the patterns found, and practice in the same style.
 private struct MaterialExamPatterns: View {
     @Environment(AppModel.self) var model
     let m: Material
@@ -329,10 +329,10 @@ private struct MaterialExamPatterns: View {
                 if let p = patterns.first {
                     Text(LocalizedStringKey(p.contentMd)).font(.stBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Text("Claude maps each question to its topic, marks and command word, then writes practice questions in the same style.")
+                    Text("The AI maps each question to its topic, marks and command word, then writes practice questions in the same style.")
                         .font(.stSmall).foregroundStyle(Theme.textSecondary)
                 }
-                ClaudeButton(task: .examPatterns) { model.jobs.run(.examPatterns, material: m.id) }
+                AIButton(task: .examPatterns) { model.jobs.run(.examPatterns, material: m.id) }
                     .buttonStyle(patterns.isEmpty ? AnyButtonStyle(PrimaryButtonStyle()) : AnyButtonStyle(QuietButtonStyle()))
             }
         }

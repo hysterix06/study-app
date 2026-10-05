@@ -45,7 +45,7 @@ struct StudyTrackerApp: App {
                     Divider()
                     Button("Command Palette") { model.showPalette = true }.keyboardShortcut("k")
                     Button("Connections") { model.go(.connections(nil)) }
-                    Button("Claude Activity") { model.go(.activity(jobId: nil)) }
+                    Button("AI Activity") { model.go(.activity(jobId: nil)) }
                 }
                 CommandMenu("Study") {
                     Button("Start Review") { model.startReview() }.keyboardShortcut("r", modifiers: [.command, .shift])
@@ -53,16 +53,18 @@ struct StudyTrackerApp: App {
                     Button("Sync Calendars and Moodle") {
                         Task { await model.syncFeeds(silent: false); await model.moodle.sync(silent: false) }
                     }.keyboardShortcut("s", modifiers: [.command, .shift])
+                    Divider()
+                    Button("New AI Chat") { model.newChat() }.keyboardShortcut("l", modifiers: [.command, .shift])
                 }
             }
         }
 
         Settings {
-            if let model { SettingsWindow().environment(model).themed() }
+            if let model { SettingsWindow().environment(model).canvasBackground().themed() }
         }
 
         MenuBarExtra {
-            if let model { MenuBarView().environment(model).themed() }
+            if let model { MenuBarView().environment(model).canvasBackground().themed() }
         } label: {
             Image(systemName: "brain")
         }
@@ -84,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // First launch opens setup; people who already have courses skip it.
             if !store.boolSetting("setup_completed") {
                 if !store.courses(includeArchived: true).isEmpty { store.setBool("setup_completed", true) }
-                else { model.go(.setup(SetupStep(rawValue: store.setting("setup_step") ?? "") ?? .welcome), replace: true) }
+                else { model.go(.setup(SetupStep(name: store.setting("setup_step") ?? "") ?? .welcome), replace: true) }
             }
             if let r = UserDefaults.standard.string(forKey: "route").flatMap(Route.init(path:)) { model.go(r, replace: true) }
             DebugSnapshots.runIfRequested(model: model)
@@ -105,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        ThemeStore.shared.applyAppearance()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -128,12 +131,14 @@ struct RootView: View {
             }
         }
         .onChange(of: model.settingsRequest) { openSettings() }
-        .sheet(item: $model.review) { session in ReviewView(session: session) }
-        .sheet(item: $model.icsPreview) { p in ICSPreviewSheet(preview: p) }
-        .sheet(isPresented: $model.showPalette) { CommandPalette() }
-        .sheet(item: $model.courseEditor) { c in CourseEditor(course: c) }
+        .sheet(item: $model.review) { session in ReviewView(session: session).themedSheet() }
+        .sheet(item: $model.icsPreview) { p in ICSPreviewSheet(preview: p).themedSheet() }
+        .sheet(isPresented: $model.showPalette) { CommandPalette().themedSheet() }
+        .sheet(item: $model.courseEditor) { c in CourseEditor(course: c).themedSheet() }
+        .sheet(item: $model.chat) { c in ChatPanel(chat: c).themedSheet() }
+        .sheet(item: $model.paste) { r in PasteSheet(request: r).themedSheet() }
         .sheet(item: Binding(get: { model.handwritingMaterialId.map { IdentifiedInt(id: $0) } }, set: { model.handwritingMaterialId = $0?.id })) { m in
-            HandwritingSheet(materialId: m.id)
+            HandwritingSheet(materialId: m.id).themedSheet()
         }
     }
 
@@ -147,6 +152,7 @@ struct RootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 ToastHost()
             }
+            .canvasBackground()
             .navigationTitle(model.breadcrumb.joined(separator: " › "))
             .toolbar {
                 ToolbarItemGroup(placement: .navigation) {
@@ -156,6 +162,10 @@ struct RootView: View {
                         .disabled(!model.canGoForward).help("Forward (⌘])")
                 }
                 ToolbarItem(placement: .primaryAction) { ActivityToolbarButton() }
+                ToolbarItem(placement: .primaryAction) {
+                    SettingsLink { Image(systemName: "gearshape") }
+                        .help("Settings (⌘,)").accessibilityLabel("Settings")
+                }
             }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -251,6 +261,7 @@ struct Sidebar: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(ThemeStore.shared.spec.systemSidebar ? .automatic : .hidden)
             if let p = model.progress {
                 Divider()
                 HStack(spacing: 8) {
@@ -259,7 +270,13 @@ struct Sidebar: View {
                     Spacer()
                 }.padding(.horizontal, 14).padding(.vertical, 8)
             }
+            Divider()
+            SettingsLink { Label("Settings", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading) }
+                .buttonStyle(.borderless).foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .help("Settings (⌘,)")
         }
+        .background(Theme.sidebar)
     }
 
     func courseRow(_ c: Course) -> some View {

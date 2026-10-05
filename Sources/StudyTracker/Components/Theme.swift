@@ -4,10 +4,30 @@ import StudyCore
 
 /// The active theme. Radii and fonts read it directly (views re-render through Observation when it changes);
 /// colors resolve through the environment so light and dark follow the view's color scheme.
+/// Kept in UserDefaults rather than the database so the look is right before the store opens.
 @Observable
 final class ThemeStore {
     nonisolated(unsafe) static let shared = ThemeStore()
-    var spec: ThemeSpec = ThemeCatalog.paper
+    private static let themeKey = "appearance.theme", modeKey = "appearance.mode"
+
+    var spec: ThemeSpec { didSet { UserDefaults.standard.set(spec.id, forKey: Self.themeKey) } }
+    var mode: AppearanceMode {
+        didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey); applyAppearance() }
+    }
+
+    init() {
+        spec = ThemeCatalog.theme(UserDefaults.standard.string(forKey: Self.themeKey))
+        mode = AppearanceMode(rawValue: UserDefaults.standard.string(forKey: Self.modeKey) ?? "") ?? .system
+    }
+
+    /// Sets the app-wide appearance, so every window, sheet and the menu bar extra switch together.
+    func applyAppearance() {
+        switch mode {
+        case .system: NSApp?.appearance = nil
+        case .light: NSApp?.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp?.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 private struct ThemeSpecKey: EnvironmentKey { static let defaultValue = ThemeCatalog.paper }
@@ -29,6 +49,20 @@ struct ThemedRoot: ViewModifier {
 
 extension View {
     func themed() -> some View { modifier(ThemedRoot()) }
+
+    /// Paints the theme's window background. Paper keeps the system window color.
+    func canvasBackground() -> some View { background(Theme.canvas) }
+
+    /// A sheet on the theme's raised surface.
+    func themedSheet() -> some View { presentationBackground(Theme.surfaceRaised) }
+}
+
+extension ThemeSpec {
+    /// Whether the sidebar keeps the system's translucent material instead of a solid theme color.
+    var systemSidebar: Bool {
+        if case .system(.sidebarMaterial, _) = light.sidebar { return true }
+        return false
+    }
 }
 
 /// A semantic color. Views use these and never a raw color, so any theme restyles the whole app.
@@ -75,6 +109,8 @@ enum Theme {
     static let canvas = ThemeColor(role: .canvas)
     static let surface = ThemeColor(role: .surface)
     static let surfaceRaised = ThemeColor(role: .surfaceRaised)
+    /// Solid in most themes; clear in Paper, where the system sidebar material shows through.
+    static let sidebar = ThemeColor(role: .sidebar)
     static let textPrimary = ThemeColor(role: .textPrimary)
     static let textSecondary = ThemeColor(role: .textSecondary)
     static let textTertiary = ThemeColor(role: .textTertiary)

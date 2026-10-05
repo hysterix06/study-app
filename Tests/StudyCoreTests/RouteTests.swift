@@ -72,3 +72,11 @@ final class RouteTests: XCTestCase {
         XCTAssertEqual(Route.material(3).screen, .study)
     }
 }
+
+extension RouteTests {
+    func testOldClaudeLinksOpenTheAIScreen() {
+        XCTAssertEqual(Route(path: "connections/claude"), .connections(.ai))
+        XCTAssertEqual(Route(path: "setup/claude"), .setup(.ai))
+        XCTAssertEqual(Route.connections(.ai).path, "connections/ai")
+    }
+}

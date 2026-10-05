@@ -51,7 +51,7 @@ struct StudyToday: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if lectures.isEmpty && due == 0 {
-                    EmptyState(text: "Add your first lecture. Slides or a PDF are enough; Claude does the rest.", actionTitle: "Add your first lecture") {
+                    EmptyState(text: "Add your first lecture. Slides or a PDF are enough; the AI does the rest.", actionTitle: "Add your first lecture") {
                         model.chooseFilesToImport()
                     }
                 }
@@ -100,7 +100,7 @@ struct StudyToday: View {
         let store = model.store
         func did(_ m: Material, _ kind: String) -> Bool { store.sessions(materialId: m.id, limit: 20).contains { $0.kind == kind } }
         if let m = lectures.first(where: { $0.processedAt != nil && !did($0, "recall") }) { return (m, "Recall what you remember") }
-        if let m = lectures.first(where: { $0.processedAt == nil }) { return (m, "Process with Claude") }
+        if let m = lectures.first(where: { $0.processedAt == nil }) { return (m, AITask.process.label) }
         if let m = lectures.first(where: { store.handwritingCaptures(materialId: $0.id).isEmpty }) { return (m, "Write the sheet from memory") }
         return nil
     }
@@ -152,7 +152,7 @@ struct LectureStudy: View {
             if let m = current {
                 ScrollView { MaterialPage(materialId: m.id).padding(24).contentWidth() }
             } else {
-                EmptyState(text: "Add your first lecture. Slides or a PDF are enough; Claude does the rest.", actionTitle: "Add your first lecture") {
+                EmptyState(text: "Add your first lecture. Slides or a PDF are enough; the AI does the rest.", actionTitle: "Add your first lecture") {
                     model.chooseFilesToImport()
                 }
             }
@@ -313,10 +313,10 @@ struct HandwritingSheet: View {
                 if !missing.isEmpty {
                     Text("Not found in your notes: " + missing.joined(separator: ", ")).font(.stBody).foregroundStyle(Theme.textSecondary)
                 }
-                Text("This quick check only looks for concept names. Claude can read the photo and tell you what's right, partial or wrong.")
+                Text("This quick check only looks for concept names. An AI review reads the photo and tells you what's right, partial or wrong.")
                     .font(.stSmall).foregroundStyle(Theme.textTertiary)
                 HStack {
-                    ClaudeButton(task: .reviewNotes) {
+                    AIButton(task: .reviewNotes) {
                         model.jobs.run(.reviewNotes, material: materialId)
                         dismiss()
                     }.buttonStyle(PrimaryButtonStyle())
@@ -438,7 +438,7 @@ struct InsightsView: View {
                 Panel {
                     SectionHeader(title: "Study minutes per week")
                     if o.minutesByWeek.allSatisfy({ $0.minutes == 0 }) {
-                        Text("No study time logged yet. Reviews, Claude sessions and study blocks you mark done count here.")
+                        Text("No study time logged yet. Reviews, AI sessions and study blocks you mark done count here.")
                             .font(.stSmall).foregroundStyle(Theme.textSecondary)
                     }
                     Chart(o.minutesByWeek, id: \.weekStart) { w in
@@ -473,7 +473,7 @@ struct InsightsView: View {
                                 Text(w.concept.name).font(.stBody)
                                 Spacer()
                                 Text("\(w.count)×").font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary)
-                                ClaudeButton(task: .explain) { model.jobs.run(.explain, concept: w.concept.id) }.buttonStyle(.borderless).font(.stSmall)
+                                AIButton(task: .explain) { model.jobs.run(.explain, concept: w.concept.id) }.buttonStyle(.borderless).font(.stSmall)
                             }
                         }
                     }

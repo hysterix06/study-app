@@ -490,7 +490,7 @@ struct StudyBlockView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(block.focus ?? "Study block").font(.stBodyStrong)
                 Text("\(Formatters.dayTime(block.plannedStart, tz: model.tz)) · \(block.plannedMinutes) min").font(.stBody).foregroundStyle(Theme.textSecondary)
-                if block.createdBy == "claude" { Chip(text: "Proposed by Claude") }
+                if block.createdBy == "claude" { Chip(text: "Proposed by AI") }
                 HStack {
                     if proposed {
                         Button("Accept") { set("planned") }.buttonStyle(PrimaryButtonStyle())

@@ -5,7 +5,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-VERSION="1.0.0"
+# One version number, kept in the MCP server source.
+VERSION="$(sed -n 's/^public let studyMCPVersion = "\(.*\)"/\1/p' Sources/StudyMCPCore/MCPServer.swift)"
 BUILD="$(date +%Y%m%d%H%M)"
 DIST="$ROOT/dist"
 APP="$DIST/Study Tracker.app"
@@ -39,6 +40,9 @@ cp Resources/MCPB/manifest.json "$MCPB/manifest.json"
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$MCPB/manifest.json"
 codesign --force --sign - "$MCPB/server/study-mcp"
 (cd "$MCPB" && zip -q -r -X "$DIST/study-tracker.mcpb" manifest.json icon.png server)
+if command -v npx >/dev/null 2>&1; then
+  npx --yes @anthropic-ai/mcpb validate "$MCPB/manifest.json" >/dev/null 2>&1 && echo "  manifest valid" || echo "  warning: mcpb validate reported problems (run: npx @anthropic-ai/mcpb validate $MCPB/manifest.json)"
+fi
 
 echo "→ Assembling the app bundle"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

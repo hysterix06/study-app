@@ -5,7 +5,7 @@ import Foundation
 public enum Migrations {
     public static var currentVersion: Int { all.count }
 
-    public static let all: [String] = [v1, v2, v3, v4]
+    public static let all: [String] = [v1, v2, v3, v4, v5]
 
     public static func migrate(_ db: Database) throws {
         let version = db.userVersion
@@ -396,5 +396,94 @@ public enum Migrations {
       error TEXT
     );
     CREATE INDEX claude_jobs_state ON claude_jobs(state);
+    """
+
+    /// AI everywhere: the built-in AI writes as actor 'ai'; jobs record the engine, tokens and cost and can run as an
+    /// in-app chat or a copy-and-paste handoff; the MCP server records which apps use it; chats and usage live locally.
+    static let v5 = """
+    CREATE TABLE audit_log_v5 (
+      id INTEGER PRIMARY KEY,
+      at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      actor TEXT NOT NULL CHECK (actor IN ('app','mcp','sync','ai')),
+      action TEXT NOT NULL,
+      entity TEXT,
+      entity_id INTEGER,
+      detail TEXT
+    );
+    INSERT INTO audit_log_v5 SELECT id, at, actor, action, entity, entity_id, detail FROM audit_log;
+    DROP TABLE audit_log;
+    ALTER TABLE audit_log_v5 RENAME TO audit_log;
+
+    CREATE TABLE claude_jobs_v5 (
+      id INTEGER PRIMARY KEY,
+      task TEXT NOT NULL,
+      args_json TEXT NOT NULL DEFAULT '{}',
+      object_kind TEXT,
+      object_id INTEGER,
+      label TEXT NOT NULL,
+      mode TEXT NOT NULL CHECK (mode IN ('automatic','desktop','chat','paste')),
+      engine TEXT,
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued','running','handed_off','waiting','done','failed','canceled')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      started_at TEXT,
+      finished_at TEXT,
+      result_summary TEXT,
+      results_json TEXT NOT NULL DEFAULT '{}',
+      error TEXT,
+      tokens_in INTEGER NOT NULL DEFAULT 0,
+      tokens_out INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL
+    );
+    INSERT INTO claude_jobs_v5(id, task, args_json, object_kind, object_id, label, mode, engine, state, created_at, started_at, finished_at, result_summary, results_json, error)
+      SELECT id, task, args_json, object_kind, object_id, label, mode,
+             CASE mode WHEN 'automatic' THEN 'cli.claude' ELSE 'app.claude-desktop' END,
+             state, created_at, started_at, finished_at, result_summary, results_json, error FROM claude_jobs;
+    DROP TABLE claude_jobs;
+    ALTER TABLE claude_jobs_v5 RENAME TO claude_jobs;
+    CREATE INDEX claude_jobs_state ON claude_jobs(state);
+
+    CREATE TABLE mcp_clients (
+      name TEXT PRIMARY KEY,
+      version TEXT,
+      protocol TEXT,
+      first_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      last_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
+    CREATE TABLE ai_usage (
+      id INTEGER PRIMARY KEY,
+      at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      job_id INTEGER,
+      chat_id INTEGER,
+      tokens_in INTEGER NOT NULL DEFAULT 0,
+      tokens_out INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL
+    );
+    CREATE INDEX ai_usage_at ON ai_usage(at);
+
+    CREATE TABLE ai_chats (
+      id INTEGER PRIMARY KEY,
+      task TEXT,
+      args_json TEXT NOT NULL DEFAULT '{}',
+      object_kind TEXT,
+      object_id INTEGER,
+      job_id INTEGER,
+      title TEXT NOT NULL,
+      engine TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
+    CREATE TABLE ai_messages (
+      id INTEGER PRIMARY KEY,
+      chat_id INTEGER NOT NULL REFERENCES ai_chats(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('user','assistant','tool','event')),
+      text TEXT NOT NULL DEFAULT '',
+      data_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    CREATE INDEX ai_messages_chat ON ai_messages(chat_id, id);
     """
 }

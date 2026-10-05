@@ -37,7 +37,7 @@ struct InboxScreen: View {
                     }
                 }
                 if !ready.isEmpty {
-                    section("Ready to process", count: ready.count, trailing: ready.count > 1 && model.jobs.mode(for: .process) == .automatic ? AnyView(Button("Process all with Claude") {
+                    section("Ready to process", count: ready.count, trailing: ready.count > 1 && model.jobs.mode(for: .process) == .automatic ? AnyView(Button("Process all") {
                         for m in ready { model.jobs.run(.process, material: m.id) }
                     }.buttonStyle(.borderless).font(.stSmall)) : nil) {
                         ForEach(ready) { m in ReadyRow(material: m, task: .process) }
@@ -54,7 +54,7 @@ struct InboxScreen: View {
                     }
                 }
                 if !blocks.isEmpty {
-                    section("Study blocks proposed by Claude", count: blocks.count, trailing: AnyView(Button("Accept all") {
+                    section("Study blocks proposed by AI", count: blocks.count, trailing: AnyView(Button("Accept all") {
                         model.run("Accepted \(blocks.count) blocks.") { for b in blocks { try model.store.setBlockStatus(b.id, "planned") }; return nil }
                     }.buttonStyle(.borderless).font(.stSmall))) {
                         ForEach(blocks) { b in
@@ -196,7 +196,7 @@ struct ReadyRow: View {
             Spacer()
             Button("Skip") { model.run("Skipped \(m.title). It stays in its course.") { try model.store.skipMaterialUndoable(m.id) } }
                 .buttonStyle(QuietButtonStyle()).help("Remove from the Inbox without processing. The file stays in its course.")
-            ClaudeButton(task: task) { model.jobs.run(task, material: m.id) }.buttonStyle(PrimaryButtonStyle())
+            AIButton(task: task) { model.jobs.run(task, material: m.id) }.buttonStyle(PrimaryButtonStyle())
         }
         .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
     }
@@ -212,7 +212,7 @@ struct ProposedAssignmentRow: View {
             Image(systemName: a.kind == .exam ? "exclamationmark.square" : "flag")
             VStack(alignment: .leading, spacing: 2) {
                 Text(a.title).font(.stBody)
-                Text([Formatters.due(a.dueAt, tz: model.tz), a.weightPct.map { Formatters.percent($0) }, a.source == "claude" ? "from Claude" : "from \(a.source.uppercased())", a.sourceLocator]
+                Text([Formatters.due(a.dueAt, tz: model.tz), a.weightPct.map { Formatters.percent($0) }, a.source == "claude" ? "from AI" : "from \(a.source.uppercased())", a.sourceLocator]
                         .compactMap { $0 }.joined(separator: " · "))
                     .font(.stSmall).foregroundStyle(Theme.textTertiary)
             }

@@ -277,7 +277,7 @@ struct CourseConcepts: View {
                 SectionHeader(title: "\(all.count) concepts across lectures")
                 TextField("Filter", text: $query).textFieldStyle(.roundedBorder).frame(width: 200)
             }
-            if all.isEmpty { EmptyState(text: "Concepts appear here when Claude processes a lecture, or add your own below.") }
+            if all.isEmpty { EmptyState(text: "Concepts appear here when a lecture is processed, or add your own below.") }
             ForEach([1, 2, 3], id: \.self) { imp in
                 let group = concepts.filter { $0.importance == imp }
                 if !group.isEmpty {
@@ -336,13 +336,13 @@ struct CourseNotes: View {
                 SectionHeader(title: "Sheets and notes")
                 Button("New note") { composing = true }.buttonStyle(.borderless).font(.stSmall)
             }
-            if notes.isEmpty { EmptyState(text: "Cornell sheets, gap reports and rubric checks from Claude appear here.") }
+            if notes.isEmpty { EmptyState(text: "Cornell sheets, gap reports and rubric checks from AI sessions appear here.") }
             ForEach(notes) { n in
                 HStack(spacing: 10) {
                     Image(systemName: n.kind == "cornell_sheet" ? "square.split.2x1" : "doc.plaintext").foregroundStyle(Theme.textSecondary)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(n.title).font(.stBody)
-                        Text("\(n.kind.replacingOccurrences(of: "_", with: " ").capitalizedFirst) · \(n.createdBy == "claude" ? "Claude" : "You") · \(Formatters.day(n.updatedAt, tz: model.tz))")
+                        Text("\(n.kind.replacingOccurrences(of: "_", with: " ").capitalizedFirst) · \(n.createdBy == "claude" ? "AI" : "You") · \(Formatters.day(n.updatedAt, tz: model.tz))")
                             .font(.stSmall).foregroundStyle(Theme.textTertiary)
                     }
                     Spacer()
@@ -418,7 +418,7 @@ struct CourseCards: View {
                 Button("Review this course") { model.startReview(courseId: course.id) }.buttonStyle(PrimaryButtonStyle())
             }
             if !proposed.isEmpty {
-                SectionHeader(title: "Proposed by Claude — approve or rewrite in your own words")
+                SectionHeader(title: "Proposed by AI — approve or rewrite in your own words")
                 ForEach(proposed) { c in ProposedCardRow(card: c) }
             }
             SectionHeader(title: "Write a card")
