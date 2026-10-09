@@ -62,6 +62,10 @@ public enum Exporter {
                     var md: String
                     if n.kind == "cornell_sheet", let sheet = CornellSheet.decode(n.dataJson) {
                         md = obsidian ? sheet.obsidianMarkdown : sheet.markdown
+                    } else if let studyNotes = StudyNotes.decode(n.dataJson) {
+                        // Diagrams as inline SVG: Obsidian and most Markdown viewers draw them.
+                        md = obsidian ? "---\ncourse: \"\(c.codeOrName)\"\nmaterial: \"\(material.replacingOccurrences(of: "\"", with: "'"))\"\ntype: study_notes\n---\n\n" : ""
+                        md += studyNotes.markdown(diagrams: .svg)
                     } else {
                         md = obsidian ? "---\ncourse: \"\(c.codeOrName)\"\nmaterial: \"\(material.replacingOccurrences(of: "\"", with: "'"))\"\ntype: \(n.kind)\ncreated_by: \(n.createdBy)\n---\n\n" : ""
                         md += "# \(n.title)\n\n\(n.contentMd)\n"

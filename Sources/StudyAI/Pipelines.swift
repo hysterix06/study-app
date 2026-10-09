@@ -100,7 +100,10 @@ public struct Pipelines: Sendable {
     static let relations = ["part_of", "causes", "contrasts", "example_of", "prerequisite"]
     static let questionKinds = ["recall", "explain", "apply", "compare", "calculate"]
 
-    static func lectureSchema() -> ResponseSchema {
+    /// Diagrams only for models with room for them: the schema and the answer both grow.
+    var diagrams: Bool { info.contextTokens >= 24_000 }
+
+    static func lectureSchema(diagrams: Bool = true) -> ResponseSchema {
         let ids: JSONValue = ["type": "array", "items": ["type": "integer"]]
         return ResponseSchema(name: "lecture_section", schema: [
             "type": "object",
@@ -127,8 +130,9 @@ public struct Pipelines: Sendable {
                     "properties": ["front": ["type": "string"], "back": ["type": "string"], "concept_name": ["type": "string"], "source_chunk_ids": ids],
                     "required": ["front", "back", "concept_name", "source_chunk_ids"],
                 ]],
+                "note_sections": ["type": "array", "items": JSONValue(any: StudyNotes.sectionSchema(includeDiagram: diagrams))],
             ],
-            "required": ["concepts", "questions", "cards"],
+            "required": ["concepts", "questions", "cards", "note_sections"],
         ])
     }
 
@@ -143,8 +147,10 @@ public struct Pipelines: Sendable {
                 ]],
                 "summary_prompt": ["type": "string"],
                 "hardest_topics": ["type": "array", "items": ["type": "string"]],
+                "overview": ["type": "string"],
+                "takeaways": ["type": "array", "items": ["type": "string"]],
             ],
-            "required": ["cues", "summary_prompt", "hardest_topics"],
+            "required": ["cues", "summary_prompt", "hardest_topics", "overview", "takeaways"],
         ])
     }
 
@@ -158,6 +164,10 @@ public struct Pipelines: Sendable {
         var cues: [[String: Any]] = []
         var summaryPrompt: String?
         var hardest: [String] = []
+        /// Study notes: sections in the shape `save_study_notes` takes.
+        var noteSections: [[String: Any]] = []
+        var overview: String?
+        var takeaways: [String] = []
     }
 
     static func ids(_ v: JSONValue?, valid: Set<Int>) -> [Int] { (v?.array ?? []).compactMap(\.int).filter(valid.contains) }
@@ -217,7 +227,33 @@ public struct Pipelines: Sendable {
             }
             if draft.summaryPrompt == nil, let sp = json["summary_prompt"]?.string, !sp.isEmpty { draft.summaryPrompt = sp }
             draft.hardest += (json["hardest_topics"]?.array ?? []).compactMap(\.string)
+            if draft.overview == nil, let o = json["overview"]?.string, !o.isEmpty { draft.overview = String(o.prefix(600)) }
+            draft.takeaways += (json["takeaways"]?.array ?? []).compactMap(\.string).filter { !$0.isEmpty }.map { String($0.prefix(300)) }
+            for section in json["note_sections"]?.array ?? [] {
+                guard let title = section["title"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { continue }
+                let points: [[String: Any]] = (section["points"]?.array ?? []).compactMap { p in
+                    guard let text = p["text"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+                    let sources = ids(p["source_chunk_ids"], valid: validIds)
+                    guard !sources.isEmpty else { return nil }
+                    let kind = p["kind"]?.string.flatMap { StudyNotes.PointKind(rawValue: $0)?.rawValue } ?? "point"
+                    return ["text": String(text.prefix(500)), "kind": kind, "source_chunk_ids": sources]
+                }
+                let diagram = section["diagram"].flatMap { $0.isNull ? nil : $0.any }
+                guard !points.isEmpty || diagram != nil else { continue }
+                // Parts of a long lecture can continue the same section: join them.
+                if let i = draft.noteSections.firstIndex(where: { ($0["title"] as? String)?.lowercased() == title.lowercased() }) {
+                    let joined = ((draft.noteSections[i]["points"] as? [[String: Any]]) ?? []) + points
+                    draft.noteSections[i]["points"] = Array(joined.prefix(12))
+                    if draft.noteSections[i]["diagram"] == nil, let diagram { draft.noteSections[i]["diagram"] = diagram }
+                } else {
+                    var s: [String: Any] = ["title": String(title.prefix(100)), "points": Array(points.prefix(12))]
+                    if let diagram { s["diagram"] = diagram }
+                    draft.noteSections.append(s)
+                }
+            }
         }
+        draft.noteSections = Array(draft.noteSections.prefix(16))
+        draft.takeaways = Array(draft.takeaways.prefix(5))
         // Keep the core ideas first.
         draft.concepts = Array(order.compactMap { concepts[$0] }
             .sorted { ($0.importance, -$0.sources.count) < ($1.importance, -$1.sources.count) }
@@ -250,6 +286,14 @@ public struct Pipelines: Sendable {
             let r = await host.callJSON("propose_cards", ["material_id": mid, "cards": Array(draft.cards.prefix(12))])
             if r.ok { report.counts["cards"] = min(draft.cards.count, 12) } else { report.warnings.append("Flashcards weren't saved: \(r.text.prefix(160))") }
         }
+        if !draft.noteSections.isEmpty {
+            var args: [String: Any] = ["material_id": mid, "sections": draft.noteSections, "takeaways": draft.takeaways]
+            if let o = draft.overview { args["overview"] = o }
+            let r = await host.callJSON("save_study_notes", args)
+            if r.ok { report.counts["notes"] = draft.noteSections.count } else { report.warnings.append("The study notes weren't saved: \(r.text.prefix(160))") }
+        } else {
+            report.warnings.append("No study notes came back for this lecture.")
+        }
         if cues.count >= 8 {
             let r = await host.callJSON("save_cornell_sheet", [
                 "material_id": mid, "title": String("\(material.title) · Cornell sheet".prefix(120)), "cues": Array(cues.prefix(20)),
@@ -270,7 +314,9 @@ public struct Pipelines: Sendable {
         report.summary = lines.joined(separator: "\n")
     }
 
-    public func processLecture(materialId: Int, progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> PipelineReport {
+    /// `notesOnly` makes study notes for a lecture processed before they existed: one request per part, and nothing
+    /// else is touched (its concepts, questions, cards and sheet stay as they are).
+    public func processLecture(materialId: Int, notesOnly: Bool = false, progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> PipelineReport {
         guard let material = store.material(materialId) else { throw AIError.badResponse("Material \(materialId) no longer exists.") }
         let chunks = store.chunks(materialId: materialId)
         guard !chunks.isEmpty else { throw AIError.unavailable("\(material.title) has no text to read yet.") }
@@ -278,8 +324,10 @@ public struct Pipelines: Sendable {
         let course = material.courseId.flatMap { store.course($0) }
         let existing = material.courseId.map { store.concepts(courseId: $0).map(\.name) } ?? []
         var report = PipelineReport(summary: "")
+        // Footers, slide numbers, "Questions?" slides and repeats never reach the model.
+        let condensed = MaterialCondenser.condense(chunks)
 
-        var parts = sections(chunks)
+        var parts = sections(condensed.chunks)
         let n = parts.count
         func perSection(_ total: Int) -> Int { max(1, Int((Double(total) / Double(n)).rounded(.up))) }
         var answers: [JSONValue] = []
@@ -290,17 +338,22 @@ public struct Pipelines: Sendable {
             progress(parts.count == 1 ? "Reading \(material.title)" : "Reading part \(index + 1) of \(parts.count)")
             let text = section.map { Self.render($0, maxChars: sectionBudget * 4) }.joined(separator: "\n\n")
             let known = Array(Set(existing + found)).sorted().prefix(60)
+            let instructions = notesOnly
+                ? Self.notesOnlyInstructions(sections: perSection(diagrams ? 8 : 5), diagrams: diagrams)
+                : Self.lectureInstructions(concepts: perSection(12), questions: perSection(diagrams ? 16 : 10), cards: perSection(10),
+                                           sections: perSection(diagrams ? 8 : 5), diagrams: diagrams)
             let prompt = """
             Course: \(course?.displayName ?? "unknown"). Material: "\(material.title)"\(parts.count > 1 ? ", part \(index + 1) of \(parts.count)" : "").
             Concepts that already exist in this course (reuse the exact name when this material covers one): \(known.isEmpty ? "none" : known.joined(separator: "; ")).
 
-            \(Self.lectureInstructions(concepts: perSection(12), questions: perSection(16), cards: perSection(10)))
+            \(instructions)
 
             \(text)
             """
             do {
-                let json = try await structured([.system(Self.rules), .user(prompt)], schema: Self.lectureSchema(),
-                                                maxOutput: min(6_000, max(1_500, info.contextTokens / 4)), report: &report)
+                let json = try await structured([.system(Self.rules), .user(prompt)],
+                                                schema: notesOnly ? Self.notesSchema(diagrams: diagrams) : Self.lectureSchema(diagrams: diagrams),
+                                                maxOutput: min(8_000, max(1_500, info.contextTokens / 4)), report: &report)
                 answers.append(json)
                 found += (json["concepts"]?.array ?? []).compactMap { $0["name"]?.string }
                 index += 1
@@ -310,6 +363,18 @@ public struct Pipelines: Sendable {
             }
         }
         var draft = Self.merge(answers, validIds: validIds, existing: existing, report: &report)
+        if notesOnly {
+            progress("Saving")
+            guard !draft.noteSections.isEmpty else { throw AIError.badResponse("No study notes that cite this lecture came back. Try a larger model.") }
+            var args: [String: Any] = ["material_id": material.id, "sections": draft.noteSections, "takeaways": draft.takeaways]
+            if let o = draft.overview { args["overview"] = o }
+            let r = await host.callJSON("save_study_notes", args)
+            guard r.ok else { throw AIError.badResponse("The study notes weren't saved: \(r.text.prefix(160))") }
+            report.counts["notes"] = draft.noteSections.count
+            let pictures = draft.noteSections.filter { $0["diagram"] != nil }.count
+            report.summary = "Study notes: \(draft.noteSections.count) section\(draft.noteSections.count == 1 ? "" : "s")" + (pictures > 0 ? ", \(pictures) diagram\(pictures == 1 ? "" : "s")." : ".")
+            return report
+        }
         guard !draft.concepts.isEmpty else { throw AIError.badResponse("The model didn't find any concepts that cite this material. Try a larger model.") }
 
         // The Cornell sheet sees only the merged concepts, so it fits even an 8k model.
@@ -323,11 +388,15 @@ public struct Pipelines: Sendable {
                 cues: 8 to 20 short questions or bare key terms, with NO answers (the student writes the answers by hand from memory). Each cites source_chunk_ids from the concepts.
                 summary_prompt: one line the student answers in their own words.
                 hardest_topics: the three topics that look hardest, each with a short reason.
-                """)], schema: Self.sheetSchema(), maxOutput: 2_000, report: &report)
+                overview: two or three plain sentences on what the lecture is about and why it matters.
+                takeaways: three to five things to remember.
+                """)], schema: Self.sheetSchema(), maxOutput: 2_500, report: &report)
             let sheetDraft = Self.merge([sheet], validIds: validIds, existing: existing, report: &report)
             draft.cues = sheetDraft.cues
             draft.summaryPrompt = sheetDraft.summaryPrompt
             draft.hardest = sheetDraft.hardest
+            draft.overview = sheetDraft.overview ?? draft.overview
+            if !sheetDraft.takeaways.isEmpty { draft.takeaways = sheetDraft.takeaways }
         } catch let e as AIError where e != .canceled {
             report.warnings.append("The Cornell sheet was built from concept names because the model's sheet failed (\(e.localizedDescription)).")
         }
@@ -337,14 +406,45 @@ public struct Pipelines: Sendable {
         return report
     }
 
-    static func lectureInstructions(concepts: Int, questions: Int, cards: Int) -> String {
+    static func lectureInstructions(concepts: Int, questions: Int, cards: Int, sections: Int = 6, diagrams: Bool = true) -> String {
         """
         From the chunks below, extract:
         - concepts: up to \(concepts) core ideas. definition is one plain sentence. importance 1 core, 2 supporting, 3 detail. links connect to other concept names (part_of, causes, contrasts, example_of, prerequisite); use [] if none.
         - questions: up to \(questions). At least 40% recall; the rest explain, apply and compare. If there are formulas or numbers, include calculate questions with worked answer keys. Never just blank out a sentence from a slide. difficulty 1-3.
-        - cards: up to \(cards) flashcards, one small idea each, front under 200 characters, back under 300.
-        Every item lists source_chunk_ids taken from the [chunk N] markers.
+        - cards: up to \(cards) flashcards, one small idea each, front under 200 characters, back under 300. Cover the core concepts first: these are the student's starter deck.
+        \(noteInstructions(sections: sections, diagrams: diagrams))
+        Every item and point lists source_chunk_ids taken from the [chunk N] markers.
         """
+    }
+
+    static func noteInstructions(sections: Int, diagrams: Bool) -> String {
+        var s = "- note_sections: up to \(sections) study-note sections that reorganize this material into the order a student should learn it. Keep only what they need: definitions, how things work and why, formulas (then what each symbol means), one worked example where the slides give numbers, and common mistakes (kind caution). Drop titles, agendas, housekeeping and repetition. Each point is one idea in at most two sentences, in your own clear words; kind is point, definition, formula, example or caution."
+        if diagrams {
+            s += "\n- diagram (in a note section, optional): only when the section explains a graph or a process. graph: a 0-10 grid; curves with [x, y] points (straight lines need 2, set smooth for curves through 3+); points for intersections, with x_tick/y_tick such as \"Q*\" and \"P*\" to label the axes; areas for shaded regions (surplus, deadweight loss); arrows for shifts. flow: 2-8 short steps, cycle true if the last leads back to the first."
+        }
+        return s
+    }
+
+    static func notesOnlyInstructions(sections: Int, diagrams: Bool) -> String {
+        """
+        From the chunks below, write study notes:
+        - overview: two or three plain sentences on what this material is about and why it matters.
+        \(noteInstructions(sections: sections, diagrams: diagrams))
+        - takeaways: three to five things to remember.
+        Every point lists source_chunk_ids taken from the [chunk N] markers.
+        """
+    }
+
+    static func notesSchema(diagrams: Bool) -> ResponseSchema {
+        ResponseSchema(name: "study_notes", schema: [
+            "type": "object",
+            "properties": [
+                "overview": ["type": "string"],
+                "note_sections": ["type": "array", "items": JSONValue(any: StudyNotes.sectionSchema(includeDiagram: diagrams))],
+                "takeaways": ["type": "array", "items": ["type": "string"]],
+            ],
+            "required": ["overview", "note_sections", "takeaways"],
+        ])
     }
 
     // MARK: Find deadlines
@@ -420,7 +520,7 @@ public struct Pipelines: Sendable {
         guard let courseId = material.courseId else { throw AIError.unavailable("Put \(material.title) in a course first, so its deadlines know where they belong.") }
         var report = PipelineReport(summary: "")
         var answers: [JSONValue] = []
-        let parts = sections(store.chunks(materialId: materialId))
+        let parts = sections(MaterialCondenser.condense(store.chunks(materialId: materialId)).chunks)
         for (i, section) in parts.enumerated() {
             progress(parts.count == 1 ? "Reading \(material.title)" : "Reading part \(i + 1) of \(parts.count)")
             let text = section.map { Self.render($0, maxChars: sectionBudget * 4) }.joined(separator: "\n\n")

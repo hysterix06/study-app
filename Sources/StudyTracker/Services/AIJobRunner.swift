@@ -71,6 +71,11 @@ final class AIJobRunner {
         run(task, args: args, objectKind: "material", objectId: id)
     }
 
+    /// Study notes for a lecture processed before they existed; nothing else about it changes.
+    func makeStudyNotes(material id: Int) {
+        run(.process, args: ["material_id": "\(id)", "notes_only": "1"], objectKind: "material", objectId: id)
+    }
+
     func run(_ task: AITask, assignment id: Int) { run(task, args: ["assignment_id": "\(id)"], objectKind: "assignment", objectId: id) }
     func run(_ task: AITask, concept id: Int) { run(task, args: ["concept_id": "\(id)"], objectKind: "concept", objectId: id) }
 
@@ -166,24 +171,42 @@ final class AIJobRunner {
     private func execute(_ job: ClaudeJob, on ref: EngineRef) async throws -> String {
         var args = job.args
         args["job_id"] = "\(job.id)"
-        if ref == .claudeCode {
+        let pipeline = job.task == .process || job.task == .extractDeadlines
+        if ref == .claudeCode && !pipeline {
+            // Weekly plan and exam patterns explore with the tools: a capped Claude Code session.
             guard let cli = ai.claudeCLI(), let mcp = ai.mcpBinary else { throw AIError.unavailable("Claude Code or the Study Tracker server wasn't found.") }
             let prompt = try Prompts.render(job.task.prompt, args: args, store: store)
             let l = ai.launch
-            return try await CLIRunner.runClaude(cli: cli, prompt: prompt, mcpCommand: mcp.path, mcpEnvironment: l.env,
-                                                 workingDirectory: store.paths.root, readableDirectory: store.paths.captures) { [weak self] p in
+            let model = ai.claudeModel
+            let r = try await CLIRunner.runClaude(cli: cli, prompt: prompt, mcpCommand: mcp.path, mcpEnvironment: l.env,
+                                                  workingDirectory: ai.claudeWorkingDirectory, readableDirectory: store.paths.captures,
+                                                  model: model) { [weak self] p in
                 DispatchQueue.main.async { self?.process = p }
             }
+            store.recordAIUsage(provider: ref.providerId, model: model, jobId: job.id, chatId: nil,
+                                tokensIn: r.usage.inputTokens, tokensOut: r.usage.outputTokens, costUSD: nil)
+            return r.text
         }
-        let provider = try ai.provider(ref)
+        let provider: LLMProvider
+        let model: String
+        if ref == .claudeCode {
+            // Lectures and syllabi go through the same pipeline as every other engine: the app reads the material and
+            // asks for JSON in a few one-shot requests, instead of a long tool-driving session on the student's plan.
+            guard let cli = ai.claudeCLI() else { throw AIError.unavailable("Claude Code wasn't found.") }
+            provider = ClaudeCodeProvider(cli: cli, workingDirectory: ai.claudeWorkingDirectory)
+            model = ai.claudeModel
+        } else {
+            provider = try ai.provider(ref)
+            model = ref.model ?? provider.descriptor.suggestedModel ?? "system"
+        }
         let host = try MCPToolHost(paths: store.paths, allowed: job.task.toolNames, jobId: job.id)
         let meter = StoreUsageMeter(store: store, jobId: job.id)
-        let model = ref.model ?? provider.descriptor.suggestedModel ?? "system"
         let progress: @Sendable (String) -> Void = { [weak self] text in Task { @MainActor in self?.progressText = text } }
         switch job.task {
         case .process:
             guard let mid = Int(job.args["material_id"] ?? "") else { throw AIError.badResponse("No material for this job.") }
-            let r = try await Pipelines(provider: provider, model: model, host: host, store: store, meter: meter).processLecture(materialId: mid, progress: progress)
+            let r = try await Pipelines(provider: provider, model: model, host: host, store: store, meter: meter)
+                .processLecture(materialId: mid, notesOnly: job.args["notes_only"] == "1", progress: progress)
             return ([r.summary] + r.warnings.prefix(2)).joined(separator: "\n")
         case .extractDeadlines:
             guard let mid = Int(job.args["material_id"] ?? "") else { throw AIError.badResponse("No material for this job.") }
@@ -262,13 +285,14 @@ final class AIJobRunner {
         }
     }
 
-    /// Processes filed lectures in the background as they arrive. Never on a paid engine unless the student allowed it.
-    func autoProcessReady() {
-        guard case .engine(let ref) = route(for: .process) else { return }
-        let free = ref == .claudeCode || ref.descriptor.map { $0.runsLocally || $0.isApple } ?? false
+    /// Processes newly filed lectures in the background. Only the files just imported (`ids`), never the whole
+    /// backlog, and never on a paid engine or the student's Claude plan unless they allowed it.
+    func autoProcessReady(ids: Set<Int>) {
+        guard !ids.isEmpty, case .engine(let ref) = route(for: .process) else { return }
+        let free = ref.descriptor.map { $0.runsLocally || $0.isApple } ?? false
             || ref.model.flatMap { ai.settings.descriptor(ref.providerId)?.model($0)?.free } == true
         guard free || store.boolSetting("auto_process_paid") else { return }
-        for m in store.unprocessedMaterials() where m.role == .lecture && store.activeJob(.process, objectKind: "material", objectId: m.id) == nil {
+        for m in store.unprocessedMaterials() where ids.contains(m.id) && m.role == .lecture && store.activeJob(.process, objectKind: "material", objectId: m.id) == nil {
             run(.process, material: m.id)
         }
     }

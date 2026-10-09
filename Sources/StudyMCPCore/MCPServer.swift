@@ -2,7 +2,7 @@ import Foundation
 import StudyCore
 
 /// The one version number: build-app.sh reads it for the app bundle and the .mcpb manifest.
-public let studyMCPVersion = "1.1.0"
+public let studyMCPVersion = "1.2.0"
 
 /// MCP server over stdio (newline-delimited JSON-RPC 2.0). Stdout carries protocol messages only;
 /// diagnostics go to stderr and ~/StudyTracker/mcp.log.

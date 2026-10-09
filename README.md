@@ -10,7 +10,7 @@ It's a native macOS app. It's local-first, works without AI, and doesn't need an
 
 1. **Collects:** Import your timetable, connect your school's Moodle, and drop lecture files onto the window. The app sorts each file into its course, reads it (scanned pages and pictures too, using on-device text recognition) and finds the deadlines in syllabi and assignment briefs.
 2. **Organizes:** **Today** shows your next class, what's due, and one suggested next step. You also get a calendar you can edit, assignments with weights and grade math, and a study planner that schedules around your classes and work shifts.
-3. **Helps you understand:** Each lecture becomes concepts linked across the whole course, practice questions, proposed flashcards, and a printable Cornell note sheet. A four-step study loop takes you from first exposure to long-term memory.
+3. **Helps you understand:** Each lecture becomes study notes that keep only what you need, reorganized and with graphs drawn by the app, plus concepts linked across the whole course, practice questions, a starter deck of flashcards, and a printable Cornell note sheet. A four-step study loop takes you from first exposure to long-term memory.
 
 ## How it helps you learn
 
@@ -19,13 +19,14 @@ Each step uses a learning technique that research supports:
 | Step | What you do | Why it works |
 | --- | --- | --- |
 | **1. Recall** | Before reading anything, write down what you remember. The AI compares it with the lecture and saves a gap report. | **Retrieval practice:** pulling information out of memory strengthens it more than re-reading. Seeing your gaps shows you what to focus on. |
-| **2. Learn** | *Process lecture* builds concepts, questions and a Cornell sheet. Concepts link to every lecture that teaches them. | **Elaboration:** connecting ideas across lectures builds understanding, not isolated facts. |
+| **2. Learn** | *Process lecture* reads the slides once and builds study notes (with diagrams), concepts, questions, starter flashcards and a Cornell sheet. Concepts link to every lecture that teaches them. | **Elaboration:** connecting ideas across lectures builds understanding, not isolated facts. |
 | **3. Write** | Print the sheet and fill it in **by hand, from memory**. Then photograph it and get your notes checked. | **Generation effect:** making notes yourself sticks better than reading notes you were handed. The check catches what you missed. |
 | **4. Test** | Review flashcards on an FSRS schedule, mixed with cards from other lectures, or take a quiz in the app's chat. | **Spaced repetition** and **interleaving:** reviews come just before you'd forget, and mixed topics teach you to tell ideas apart. |
 
 A few other things support this:
 
-- **The AI proposes flashcards. You approve or rewrite them**, so the cards are in your own words.
+- **Study notes, not slides:** each lecture's notes drop agendas, footers and repetition and keep definitions, formulas, worked examples and common mistakes. Economics-style graphs and process diagrams are drawn by the app, so they're sharp in light and dark mode and export as SVG. The course's Notes tab puts every lecture together with a formula sheet and glossary, without asking the AI again.
+- **The AI proposes flashcards. You approve or rewrite them**, so the cards are in your own words. A lecture's starter deck can go into review in one click.
 - **Explain it back:** explain a concept in plain words and see where your explanation breaks down. This is the Feynman technique.
 - **Your ratings are yours:** the AI never grades your recall for you.
 - **Insights** show whether your studying is working: on-time rate, 30-day card retention, recall within 48 hours, study minutes per week, grades against targets, and the concepts you get wrong most often.
@@ -37,6 +38,8 @@ The app works fully without AI. When you want AI, you pick where it runs:
 - **Built in and free:** Apple Intelligence on your Mac, or free online models through OpenRouter. API keys for other services (Groq, Gemini, Mistral, OpenAI, Anthropic, DeepSeek) and local engines (Ollama, LM Studio) also work.
 - **An AI app you already use:** Claude Desktop, Claude Code, ChatGPT's Codex, VS Code with Copilot, Cursor, LM Studio and others connect in one click through a small local [MCP](https://modelcontextprotocol.io) server that ships with the app.
 - **Any chatbot:** *Copy for any chatbot* gives you a ready-made prompt. Paste the answer back and it goes through the same checks.
+
+**Claude Code** runs background tasks on your Claude plan in a lean mode: a lecture is a few one-shot requests about the size of its slides (after footers and filler slides are stripped on your Mac), on the model you pick in Settings › AI (Haiku, Sonnet or Opus). It never loads your own CLAUDE.md, plugins or MCP servers, and it only processes lectures automatically if you allow it. Settings › AI shows how many tokens it used in the last 7 days.
 
 Your course material is only sent to the engine you chose. Online engines ask for your agreement the first time. Free engines that may train on your data are labeled.
 

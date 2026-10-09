@@ -86,13 +86,24 @@ private struct BuiltInPanel: View {
             }.font(.stSmall)
             Toggle("Process new lectures automatically once filed", isOn: boolBinding(model, "auto_process"))
             if model.store.boolSetting("auto_process") {
-                Toggle("…even with a paid engine", isOn: boolBinding(model, "auto_process_paid")).font(.stSmall).padding(.leading, 18)
+                Toggle("…even with a paid engine or Claude Code (your plan)", isOn: boolBinding(model, "auto_process_paid")).font(.stSmall).padding(.leading, 18)
             }
             if model.ai.claudeCLI() != nil || model.ai.edition == .macDirect {
                 HStack {
                     Text(model.ai.claudeCLI() != nil ? "Claude Code found: it can run background tasks on your Claude plan." : "Claude Code isn't installed.")
                         .font(.stSmall).foregroundStyle(Theme.textTertiary)
                     Button("Look again") { model.ai.resetCLICache(); model.refresh() }.buttonStyle(.borderless).font(.stSmall)
+                }
+                if model.ai.claudeCLI() != nil {
+                    HStack {
+                        Text("Claude Code model").font(.stSmall)
+                        Picker("Claude Code model", selection: Binding(get: { model.ai.claudeModel },
+                                                                      set: { model.store.setSetting("claude_code_model", $0); model.refresh() })) {
+                            ForEach(ClaudeCodeProvider.models) { Text($0.name).tag($0.id) }
+                        }.labelsHidden().frame(maxWidth: 260)
+                    }
+                    Text("A lecture takes a few requests about the size of its slides. Haiku stretches your plan furthest; Opus uses it fastest.")
+                        .font(.stSmall).foregroundStyle(Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -423,6 +434,11 @@ private struct UsagePanel: View {
                 return n > 0 ? "\(d.name): \(n) request\(n == 1 ? "" : "s")" + (d.id == Catalog.openRouter.id ? " (free models allow about 50 a day)" : "") : nil
             }
             if !today.isEmpty { Text("Today: " + today.joined(separator: " · ")).font(.stSmall).foregroundStyle(Theme.textSecondary) }
+            let week = model.store.aiTokens(provider: EngineRef.claudeCode.providerId, since: Date().addingTimeInterval(-7 * 86_400))
+            if week.tokens > 0 {
+                Text("Claude Code (your plan), last 7 days: \(JobRow.tokens(week.tokens)) tokens over \(week.jobs) task\(week.jobs == 1 ? "" : "s").")
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
+            }
         }
     }
 }

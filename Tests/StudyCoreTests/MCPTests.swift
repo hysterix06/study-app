@@ -53,7 +53,7 @@ final class MCPTests: XCTestCase {
         for name in tools {
             XCTAssertFalse(name.contains("delete") || name.contains("sql") || name.contains("update_") || name.contains("edit"), name)
         }
-        let allowedWrites: Set = ["save_concepts", "save_questions", "propose_cards", "save_cornell_sheet", "save_note", "propose_assignments",
+        let allowedWrites: Set = ["save_concepts", "save_questions", "propose_cards", "save_study_notes", "save_cornell_sheet", "save_note", "propose_assignments",
                                   "propose_study_blocks", "mark_material_processed", "record_session", "log_review"]
         let writes = Set(ToolCatalog.writeTools.map(\.name))
         XCTAssertEqual(writes, allowedWrites)
