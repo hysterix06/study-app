@@ -435,6 +435,14 @@ public struct Chunk: Identifiable, Hashable {
         imageCount = r.i("image_count"); images = JSON.stringArray(r.string("images")); ocr = r.bool("ocr")
         tokenEstimate = r.i("token_estimate")
     }
+
+    public init(id: Int, materialId: Int, ordinal: Int, locator: String, heading: String? = nil, textMd: String, notesMd: String? = nil,
+                extraMd: String? = nil, imageCount: Int = 0, images: [String] = [], ocr: Bool = false, tokenEstimate: Int? = nil) {
+        self.id = id; self.materialId = materialId; self.ordinal = ordinal; self.locator = locator; self.heading = heading
+        self.textMd = textMd; self.notesMd = notesMd; self.extraMd = extraMd; self.imageCount = imageCount; self.images = images; self.ocr = ocr
+        let chars: Int = textMd.count + (notesMd?.count ?? 0) + (extraMd?.count ?? 0)
+        self.tokenEstimate = tokenEstimate ?? (chars + 3) / 4
+    }
 }
 
 public struct Concept: Identifiable, Hashable {

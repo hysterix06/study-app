@@ -43,6 +43,10 @@ final class ChatController: Identifiable {
     You are chatting with the student inside the Study Tracker app. Keep replies short and conversational; use simple Markdown.
     To get the student's own flashcard rating, call ask_for_rating with the card id: the app shows them rating buttons and
     returns their choice. Never choose a rating yourself.
+    To draw a graph or a process, write a ```diagram code block holding JSON the app draws:
+    {"kind":"graph","x_label":"Quantity","y_label":"Price","curves":[{"label":"S","points":[[1,1],[9,9]]}],
+    "points":[{"label":"E","x":5,"y":5,"x_tick":"Q*","y_tick":"P*"}]} on a 0-10 grid (areas and arrows too),
+    or {"kind":"flow","steps":["…","…"],"cycle":false}.
     """
 
     private init(id: Int, model: AppModel, chat: AIChat) {

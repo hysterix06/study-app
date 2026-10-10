@@ -69,6 +69,13 @@ public extension StudyStore {
         return (try? db.scalarInt("SELECT count(*) FROM ai_usage WHERE provider = ? AND at >= ?", [provider, ISO.instant(start)])) ?? 0
     }
 
+    /// Tokens an engine used since a date and how many tasks used them ("Claude Code, last 7 days: 84k over 6 tasks").
+    func aiTokens(provider: String, since: Date) -> (tokens: Int, jobs: Int) {
+        let row = (try? db.first("SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS t, COUNT(DISTINCT job_id) AS j FROM ai_usage WHERE provider = ? AND at >= ?",
+                                 [provider, ISO.instant(since)])) ?? nil
+        return (row?.int("t") ?? 0, row?.int("j") ?? 0)
+    }
+
     // MARK: Chats
 
     @discardableResult

@@ -24,7 +24,7 @@ What sits underneath:
 The app works without AI: courses still get a path from your lectures, and sessions, reviews and exam prep all run. AI comes in two parts, set in Settings › AI:
 
 - **Everyday AI**, free: sorts files, reads syllabi and labels practice problems, on your Mac with Apple Intelligence when it can. *Sign in with OpenRouter* adds free online models, which also check your answers, give feedback on your explanations and tutor you in a session. (The on-device model never grades: it isn't reliable enough for that.)
-- **Course builder**, strong: lays out each course, writes its notebook guide (with reference drawings) and its lessons. It's Claude: Claude Code on your Mac (it uses your Claude plan, in the background, with access to Study Tracker and nothing else), an Anthropic API key, Claude Desktop, or *Copy for Claude.ai* and paste the answer back. Without one, free AI builds a basic version.
+- **Course builder**, strong: lays out each course, writes its notebook guide (with reference drawings) and its lessons. It's Claude: Claude Code on your Mac (it uses your Claude plan, in the background: one request per step with the course in it, no tools and none of your own Claude Code setup, on the model you pick in Settings › AI), an Anthropic API key, Claude Desktop, or *Copy for Claude.ai* and paste the answer back. Without one, free AI builds a basic version.
 
 Your course material only goes to the engine you chose. Online engines ask for your agreement the first time.
 

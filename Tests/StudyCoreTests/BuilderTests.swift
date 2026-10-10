@@ -209,15 +209,6 @@ final class CourseBuilderTests: XCTestCase {
         XCTAssertFalse(store.builderStepFailedRecently(step, now: Date().addingTimeInterval(13 * 3600)), "tried again after half a day")
     }
 
-    func testClaudeCodeRunsWithOnlyStudyTrackerTools() {
-        let args = CLIRunner.arguments(prompt: "p", config: "{}")
-        let tools = args.firstIndex(of: "--tools")!
-        XCTAssertEqual(args[tools + 1], "", "no files, shell or web")
-        XCTAssertTrue(args.contains("--strict-mcp-config") && args.contains("--no-session-persistence"))
-        XCTAssertFalse(args.contains("Read") || args.contains("--add-dir"))
-        XCTAssertEqual(args[args.firstIndex(of: "--allowedTools")! + 1], "mcp__study-tracker")
-    }
-
     func testCourseBuildingTasks() {
         XCTAssertEqual(AITask.buildPath.degradesTo, .buildPathBasic)
         XCTAssertEqual(AITask.writeNotebook.engineLane, .builder)
@@ -350,6 +341,71 @@ final class BasicBuilderPipelineTests: XCTestCase {
         XCTAssertEqual(lesson.sections.map(\.kind), ["idea", "example", "mistakes", "summary"], "no citation, no course angle")
         XCTAssertEqual(lesson.cards.count, 1)
         XCTAssertEqual(lesson.tier, "basic")
+    }
+}
+
+/// The course builder's full steps without tools: the course goes into the prompt, and the answer is saved through the
+/// same checks as a pasted one.
+final class FullBuilderPipelineTests: XCTestCase {
+    var store: StudyStore!
+    var ids: (term: Int, hm: Int, mkt: Int)!
+    var lecture: Int!
+    var chunks: [Int] = []
+
+    override func setUpWithError() throws {
+        store = try makeStore(file: true)
+        ids = try seedCourses(store)
+        let deck = try FixtureFactory.pptx(slides: [
+            (title: "Overbooking", bullets: [(0, "Accepting more reservations than rooms")], notes: "This will be on the exam", picture: nil, table: nil, chart: false),
+            (title: "No-show rate", bullets: [(0, "Share of bookings that don't arrive")], notes: nil, picture: nil, table: nil, chart: false),
+        ])
+        guard case .imported(let m, _) = store.importMaterial(from: deck, courseId: ids.hm) else { return XCTFail() }
+        lecture = m
+        chunks = store.chunks(materialId: m).map(\.id)
+    }
+
+    func run(_ task: AITask, topicIds: [Int] = [], _ p: ScriptedProvider) async throws -> PipelineReport {
+        var args = ["course_id": "\(ids.hm)"]
+        if !topicIds.isEmpty { args["topic_ids"] = topicIds.map(String.init).joined(separator: ",") }
+        let id = try store.enqueueJob(task, args: args, objectKind: "course", objectId: ids.hm, label: "x", mode: .automatic, engine: "cli.claude", courseId: ids.hm)
+        try store.setJobState(id, .running)
+        let host = try MCPToolHost(paths: store.paths, allowed: task.toolNames, jobId: id)
+        return try await Pipelines(provider: p, model: "sonnet", host: host, store: store).buildFull(try XCTUnwrap(store.job(id)))
+    }
+
+    func testAFullPathIsOneRequestWithTheCourseInIt() async throws {
+        let p = ScriptedProvider(descriptor: testDescriptor(context: 200_000), replies: [{ [chunks, lecture] r in
+            let prompt = r.messages.last!.text
+            XCTAssertTrue(prompt.contains("[\(chunks[0])] slide 1 · Overbooking"), "the course's outline is in the prompt")
+            XCTAssertTrue(r.tools.isEmpty, "no tools")
+            return ChatResponse(text: """
+                Here is the path:
+                {"approach_md":"- Learn the words first","units":[{"title":"Capacity","topics":[
+                  {"title":"Overbooking","objectives":["Explain why hotels overbook"],"emphasis":3,"sources":[{"material_id":\(lecture!),"chunk_ids":[\(chunks[0])]}]},
+                  {"title":"No-shows","prereqs":["Overbooking"]}]}]}
+                """)
+        }])
+        let report = try await run(.buildPath, p)
+        XCTAssertEqual(p.requests.count, 1)
+        XCTAssertEqual(report.counts["topics"], 2)
+        XCTAssertEqual(store.path(courseId: ids.hm)?.tier, "full")
+        XCTAssertEqual(store.topics(courseId: ids.hm).map(\.title), ["Overbooking", "No-shows"])
+    }
+
+    func testNotebookPagesAreAskedForAFewAtATime() async throws {
+        let titles = ["Overbooking", "No-shows", "Walk costs", "RevPAR", "ADR", "Occupancy"]
+        try store.savePath(courseId: ids.hm, PathInput(units: [.init(title: "U", topics: titles.map { .init(title: $0) })]), tier: "basic", builtWith: "x")
+        let topics = store.topics(courseId: ids.hm)
+        let page: (ChatRequest) throws -> ChatResponse = { r in
+            let asked = topics.filter { r.messages.last!.text.contains("(topic_id \($0.id))") }
+            let pages = asked.map { #"{"topic_id":\#($0.id),"terms":[{"term":"\#($0.title)","definition":"A definition."}],"diagrams":[],"formulas":[]}"# }
+            return ChatResponse(text: #"{"pages":[\#(pages.joined(separator: ","))]}"#)
+        }
+        let p = ScriptedProvider(descriptor: testDescriptor(context: 200_000), replies: [page, page])
+        let report = try await run(.writeNotebook, topicIds: topics.map(\.id), p)
+        XCTAssertEqual(p.requests.count, 2, "four pages, then two")
+        XCTAssertEqual(report.counts["pages"], 6)
+        XCTAssertEqual(topics.compactMap { store.notebook(topicId: $0.id)?.tier }, Array(repeating: "full", count: 6))
     }
 }
 

@@ -32,8 +32,10 @@ public extension PastePrompts {
      "cards": [{"front": "…", "back": "…"}], "explain_prompt": "…"}]}
     """
 
-    /// The prompts for any job that can be pasted: a file job (a syllabus) or a course-building one.
-    func prompts(for job: ClaudeJob, charLimit: Int = 45_000) throws -> [String] {
+    /// The prompts for any job that can be pasted: a file job (a syllabus) or a course-building one. `topicsPerPart`
+    /// caps how many notebook pages or lessons one prompt asks for, so each answer stays well inside a model's output
+    /// limit (the course builder sends these prompts itself).
+    func prompts(for job: ClaudeJob, charLimit: Int = 45_000, topicsPerPart: Int? = nil) throws -> [String] {
         if let mid = Int(job.args["material_id"] ?? "") { return try prompts(job.task, materialId: mid, charLimit: charLimit) }
         guard let cid = job.courseId ?? Int(job.args["course_id"] ?? ""), let course = store.course(cid) else {
             throw AIError.badResponse("This job has no course.")
@@ -61,10 +63,16 @@ public extension PastePrompts {
             let numbers = store.topicNumbers(courseId: cid)
             let topics = job.topicIds.compactMap { store.topic($0) }.filter { !$0.retired }
             guard !topics.isEmpty else { throw AIError.badResponse("These topics are no longer in the course's path.") }
-            // Split the topics into parts that each fit a chatbot message.
+            // Split the topics into parts that each fit a chatbot message (and, for the course builder, its answer).
             let room = charLimit - 6_000
-            let perTopic = max(1_500, room / topics.count)
-            let perPart = max(1, room / perTopic)
+            let perTopic: Int, perPart: Int
+            if let cap = topicsPerPart {
+                perPart = max(1, min(cap, topics.count))
+                perTopic = max(1_500, room / perPart)
+            } else {
+                perTopic = max(1_500, room / topics.count)
+                perPart = max(1, room / perTopic)
+            }
             let parts = stride(from: 0, to: topics.count, by: perPart).map { Array(topics[$0..<min(topics.count, $0 + perPart)]) }
             return parts.enumerated().map { i, part in
                 let briefs = part.map { t -> String in

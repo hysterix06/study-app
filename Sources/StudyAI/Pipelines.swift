@@ -68,6 +68,31 @@ public struct Pipelines: Sendable {
         }
     }
 
+    /// One request whose answer is JSON written to an example rather than a schema (the course builder's prompts), with
+    /// the same waits as `structured` and one re-ask when no JSON object comes back. Returns the reply as text.
+    func jsonAnswer(_ messages: [ChatMessage], maxOutput: Int, report: inout PipelineReport) async throws -> String {
+        var messages = messages
+        var attempts = 0
+        while true {
+            attempts += 1
+            try Task.checkCancellation()
+            try meter?.check(provider: provider.descriptor, model: info)
+            do {
+                let r = try await provider.send(ChatRequest(model: model, messages: messages, maxOutputTokens: maxOutput, temperature: 0.3))
+                report.requests += 1
+                report.usage = report.usage + r.usage
+                meter?.record(provider: provider.descriptor, model: model, usage: r.usage)
+                if !PastePrompts.objects(in: r.text).isEmpty || attempts >= 2 { return r.text }
+                messages.append(.assistant(r.text))
+                messages.append(.user("That had no JSON object in it. Reply again with only the JSON object asked for."))
+            } catch AIError.rateLimited(let wait) where attempts < 4 {
+                try await Task.sleep(nanoseconds: UInt64(min(wait ?? Double(attempts * 8), 60) * 1_000_000_000))
+            } catch AIError.network where attempts < 3 {
+                try await Task.sleep(nanoseconds: UInt64(attempts * 3) * 1_000_000_000)
+            }
+        }
+    }
+
     // MARK: Material text
 
     static func render(_ c: Chunk, maxChars: Int) -> String {
@@ -184,7 +209,7 @@ public struct Pipelines: Sendable {
         guard let courseId = material.courseId else { throw AIError.unavailable("Put \(material.title) in a course first, so its deadlines know where they belong.") }
         var report = PipelineReport(summary: "")
         var answers: [JSONValue] = []
-        let parts = sections(store.chunks(materialId: materialId))
+        let parts = sections(MaterialCondenser.condense(store.chunks(materialId: materialId)).chunks)
         for (i, section) in parts.enumerated() {
             progress(parts.count == 1 ? "Reading \(material.title)" : "Reading part \(i + 1) of \(parts.count)")
             let text = section.map { Self.render($0, maxChars: sectionBudget * 4) }.joined(separator: "\n\n")

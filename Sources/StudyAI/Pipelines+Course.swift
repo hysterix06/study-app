@@ -515,4 +515,36 @@ public extension Pipelines {
         report.summary = "Wrote \(written) lesson\(written == 1 ? "" : "s")."
         return report
     }
+
+    // MARK: The course builder, without tools
+
+    /// The prompt itself carries the course and the rules (it's the one a student would paste into Claude.ai).
+    static let fullBuildSystem = """
+    You build university courses for the Study Tracker app, in the background. Nobody will answer questions, so make \
+    sensible choices. Reply with only the JSON asked for.
+    """
+
+    /// The course builder's full step (lay out the course, write notebook pages, write lessons) as a few plain
+    /// requests: the course goes into the prompt (the same prompt Copy for Claude.ai hands the student), the strong
+    /// model answers with JSON, and the answer is saved through the same checks as a pasted one. A tool loop re-sent the
+    /// whole growing conversation on every turn; this sends the course once per part.
+    func buildFull(_ job: ClaudeJob, progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> PipelineReport {
+        let paste = PastePrompts(store: store)
+        let lessons = job.task == .writeLessons
+        // The tool route read about 60,000 characters of course signals, or 12,000 per topic; this sends the same.
+        // Four notebook pages or three lessons per request keep each answer well inside the output limit.
+        let perPart = lessons ? 3 : 4
+        let prompts = try paste.prompts(for: job, charLimit: job.task == .buildPath ? 67_000 : 6_000 + perPart * 12_000, topicsPerPart: perPart)
+        var report = PipelineReport(summary: "")
+        var answers: [String] = []
+        for (i, prompt) in prompts.enumerated() {
+            progress(prompts.count == 1 ? "Writing" : "Writing part \(i + 1) of \(prompts.count)")
+            answers.append(try await jsonAnswer([.system(Self.fullBuildSystem), .user(prompt)], maxOutput: 32_000, report: &report))
+        }
+        progress("Saving")
+        var saved = try await paste.importAnswer(for: job, text: answers.joined(separator: "\n\n"), host: host)
+        saved.usage = report.usage
+        saved.requests = report.requests
+        return saved
+    }
 }

@@ -16,7 +16,6 @@ import StudyMCPCore
 @Observable
 final class AIJobRunner {
     unowned let model: AppModel
-    private var processes: [Int: Process] = [:]
     private var tasks: [Int: Task<Void, Never>] = [:]
     /// Queue lane → the job running in it.
     private(set) var running: [String: Int] = [:]
@@ -249,24 +248,24 @@ final class AIJobRunner {
         var args = job.args
         args["job_id"] = "\(job.id)"
         args["quiet"] = nil
+        let provider: LLMProvider
+        let modelId: String
         if ref.isCLI {
-            guard let prompt = job.task.prompt else { throw AIError.unavailable("\(job.task.label) doesn't run in Claude Code.") }
-            guard let cli = ai.claudeCLI(), let mcp = ai.mcpBinary else { throw AIError.unavailable("Claude Code or the Study Tracker server wasn't found.") }
-            let text = try Prompts.render(prompt, args: args, store: store)
-            progress[job.id] = "\(job.label) with Claude Code"
-            let l = ai.launch
-            let id = job.id
-            return try await CLIRunner.runClaude(cli: cli, prompt: text, mcpCommand: mcp.path, mcpEnvironment: l.env,
-                                                 workingDirectory: store.paths.root, model: store.setting("ai_builder_cli_model")) { [weak self] p in
-                DispatchQueue.main.async { self?.processes[id] = p }
+            // Claude Code is a plain text engine here: no tools, no MCP servers, none of the student's own setup, and
+            // canceling the job stops its process. It runs only the course builder's full steps.
+            guard let cli = ai.claudeCLI() else { throw AIError.unavailable("Claude Code wasn't found.") }
+            provider = ClaudeCodeProvider(cli: cli, workingDirectory: ai.claudeWorkingDirectory, timeout: 15 * 60, effort: nil)
+            modelId = ai.claudeModel
+        } else {
+            provider = try ai.provider(ref)
+            guard let m = ref.model ?? provider.descriptor.suggestedModel else {
+                throw AIError.unavailable("Pick a model for \(provider.descriptor.name) in Settings › AI.")
             }
-        }
-        let provider = try ai.provider(ref)
-        guard let modelId = ref.model ?? provider.descriptor.suggestedModel else {
-            throw AIError.unavailable("Pick a model for \(provider.descriptor.name) in Settings › AI.")
+            modelId = m
         }
         let host = try MCPToolHost(paths: store.paths, allowed: job.task.toolNames, jobId: job.id)
         let builder = job.task.engineLane == .builder
+        // Usage is recorded for every engine, Claude Code included (it bills the student's plan), and capped per job.
         let meter = StoreUsageMeter(store: store, jobId: job.id, tokenCap: builder ? 1_500_000 : nil)
         let pipelines = Pipelines(provider: provider, model: modelId, host: host, store: store, meter: meter)
         let id = job.id
@@ -294,21 +293,21 @@ final class AIJobRunner {
             r = try await pipelines.writeNotebookBasic(courseId: try course(), topicIds: job.topicIds, progress: report)
         case .writeLessonsBasic:
             r = try await pipelines.writeLessonsBasic(courseId: try course(), topicIds: job.topicIds, progress: report)
+        case .buildPath, .writeNotebook, .writeLessons:
+            // The course builder (Claude Code or an API key): the course in the prompt, a few requests, no tool loop.
+            r = try await pipelines.buildFull(job, progress: report)
         default:
-            // The course builder on an API key, or a conversation task queued in the background (an AI app asked for
-            // it): the model works with the tools.
-            guard let prompt = job.task.prompt else { throw AIError.unavailable("\(job.task.label) doesn't run in the background.") }
+            // A conversation task queued in the background (an AI app asked for it): the model works with the tools.
+            guard !ref.isCLI, let prompt = job.task.prompt else { throw AIError.unavailable("\(job.task.label) doesn't run in the background.") }
             report("Working")
-            var messages: [ChatMessage] = [.system(builder ? Prompts.builderRules : Prompts.studyRules), .user(try Prompts.render(prompt, args: args, store: store))]
-            let limits = builder ? AgentLimits(maxIterations: 40, maxTotalTokens: 1_500_000) : AgentLimits()
-            let (reply, _) = try await AgentLoop(provider: provider, model: modelId, host: host, limits: limits, meter: meter).run(&messages, stream: false)
+            var messages: [ChatMessage] = [.system(Prompts.studyRules), .user(try Prompts.render(prompt, args: args, store: store))]
+            let (reply, _) = try await AgentLoop(provider: provider, model: modelId, host: host, limits: AgentLimits(), meter: meter).run(&messages, stream: false)
             return reply.text
         }
         return ([r.summary] + r.warnings.prefix(2)).joined(separator: "\n")
     }
 
     private func finish(_ id: Int, lane: String, engine: EngineRef, _ outcome: Result<String, Error>) {
-        processes[id] = nil
         tasks[id] = nil
         running[lane] = nil
         progress[id] = nil
@@ -512,7 +511,6 @@ final class AIJobRunner {
 
     func cancel(_ id: Int) {
         try? store.setJobState(id, .canceled)
-        processes[id]?.terminate()
         tasks[id]?.cancel()
         model.refresh()
     }
@@ -529,7 +527,6 @@ final class AIJobRunner {
 
     /// Stops any running Claude Code when the app quits, so nothing is left running behind it.
     func stopAll() {
-        for p in processes.values { p.terminate() }
         for t in tasks.values { t.cancel() }
     }
 

@@ -48,6 +48,17 @@ final class AIService {
 
     func resetCLICache() { cachedCLI = nil }
 
+    /// The model Claude Code builds courses on ("haiku", "sonnet" or "opus").
+    var claudeModel: String {
+        let m = store.setting("claude_code_model") ?? ""
+        return ClaudeCodeProvider.models.contains { $0.id == m } ? m : ClaudeCodeProvider.defaultModel
+    }
+
+    /// An empty folder for Claude Code to run in, so no project's CLAUDE.md, settings or MCP servers load with it.
+    var claudeWorkingDirectory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("StudyTracker-claude", isDirectory: true)
+    }
+
     // MARK: Engines
 
     enum ProviderStatus: Equatable {
@@ -98,7 +109,8 @@ final class AIService {
     }
 
     func resolverInputs() -> EngineResolver.Inputs {
-        EngineResolver.Inputs(ready: readyEngines(), cliAvailable: claudeCLI() != nil && mcpBinary != nil, everyday: settings.everyday,
+        // Claude Code builds with no tools (the course goes in the prompt), so it doesn't need the Study Tracker server.
+        EngineResolver.Inputs(ready: readyEngines(), cliAvailable: claudeCLI() != nil, everyday: settings.everyday,
                               builder: settings.builder, allowPaidEveryday: settings.allowPaidEveryday, exhausted: exhaustedProviders)
     }
 

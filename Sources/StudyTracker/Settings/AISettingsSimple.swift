@@ -75,7 +75,7 @@ struct AISettingsSimple: View {
     var builder: some View {
         let ai = model.ai
         let choice = ai.settings.builder
-        let cli = ai.claudeCLI() != nil && ai.mcpBinary != nil
+        let cli = ai.claudeCLI() != nil
         let strong = ai.readyEngines().filter(\.strong)
         let current = ai.settings.builderChosen ? builderEngine(choice: choice, cli: cli, strong: strong) : nil
         return VStack(alignment: .leading, spacing: 6) {
@@ -97,6 +97,17 @@ struct AISettingsSimple: View {
             }
             Text("Lays out each course the best way to learn it, and writes its notebook guide and lessons.")
                 .font(.stSmall).foregroundStyle(Theme.textTertiary)
+            if cli && current?.hasPrefix("Claude Code") == true {
+                HStack {
+                    Text("Claude Code model").font(.stSmall)
+                    Picker("Claude Code model", selection: Binding(get: { ai.claudeModel },
+                                                                  set: { model.store.setSetting("claude_code_model", $0); model.refresh() })) {
+                        ForEach(ClaudeCodeProvider.models) { Text($0.name).tag($0.id) }
+                    }.labelsHidden().frame(maxWidth: 260)
+                }
+                Text("Each step is one request about the size of the course's text, with nothing of your own Claude Code setup loaded. Haiku stretches your plan furthest; Opus uses it fastest.")
+                    .font(.stSmall).foregroundStyle(Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+            }
             if current == nil {
                 if cli || !strong.isEmpty {
                     Button(cli ? "Use Claude Code to build your courses" : "Use \(strong[0].ref.displayName) to build your courses") { set(builder: .automatic) }

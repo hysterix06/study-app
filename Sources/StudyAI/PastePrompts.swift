@@ -19,8 +19,9 @@ public struct PastePrompts {
     public func prompts(_ task: AITask, materialId: Int, charLimit: Int = 45_000, now: Date = Date()) throws -> [String] {
         guard Self.supported.contains(task) else { throw AIError.unavailable("\(task.label) needs an AI that can talk with Study Tracker.") }
         guard let material = store.material(materialId) else { throw AIError.badResponse("Material \(materialId) no longer exists.") }
-        let chunks = store.chunks(materialId: materialId)
-        guard !chunks.isEmpty else { throw AIError.unavailable("\(material.title) has no text yet.") }
+        let all = store.chunks(materialId: materialId)
+        guard !all.isEmpty else { throw AIError.unavailable("\(material.title) has no text yet.") }
+        let chunks = MaterialCondenser.condense(all).chunks
         var parts: [[String]] = [[]]
         var size = 0
         for c in chunks {

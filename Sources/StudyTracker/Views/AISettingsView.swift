@@ -358,6 +358,11 @@ private struct UsagePanel: View {
                 return n > 0 ? "\(d.name): \(n) request\(n == 1 ? "" : "s")" + (d.id == Catalog.openRouter.id ? " (free models allow about 50 a day)" : "") : nil
             }
             if !today.isEmpty { Text("Today: " + today.joined(separator: " · ")).font(.stSmall).foregroundStyle(Theme.textSecondary) }
+            let week = model.store.aiTokens(provider: EngineRef.claudeCode.providerId, since: Date().addingTimeInterval(-7 * 86_400))
+            if week.tokens > 0 {
+                Text("Claude Code (your plan), last 7 days: \(JobRow.tokens(week.tokens)) tokens over \(week.jobs) task\(week.jobs == 1 ? "" : "s").")
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
+            }
         }
     }
 }
