@@ -72,6 +72,15 @@ final class DiagramTests: XCTestCase {
         }
         XCTAssertEqual(boxes.count, 5)
         XCTAssertEqual(Set(boxes.map(\.y)).count, 2, "four per row, then a second row")
+        // The way back from the last step runs outside every box.
+        let shapes = DiagramLayout.shapes(d, width: 480, height: DiagramLayout.height(d, width: 480))
+        let frames = shapes.compactMap { s -> CGRectLike? in if case .box(let o, let w, let h) = s { return CGRectLike(o: o, w: w, h: h) }; return nil }
+        guard case .line(let start, let points, _, _)? = shapes.last(where: { if case .line = $0 { return true }; return false }) else { return XCTFail() }
+        let path = [start] + points
+        for (a, b) in zip(path, path.dropFirst()) {
+            for f in frames.dropFirst() where f.crosses(a, b) { XCTFail("the cycle's way back crosses a box at \(f.o)") }
+        }
+        XCTAssertLessThanOrEqual(path.map(\.y).max() ?? 0, DiagramLayout.height(d, width: 480), "it fits the diagram's height")
         XCTAssertEqual(DiagramLayout.wrap("Households supply labour to firms", width: 60, lines: 2).count, 2)
     }
 
@@ -246,5 +255,15 @@ final class DiagramBlockTests: XCTestCase {
         XCTAssertEqual(DiagramBlocks.split("Plain answer."), [.text("Plain answer.")])
         XCTAssertEqual(DiagramBlocks.split("Drawing:\n```diagram\n{\"kind\":"), [.text("Drawing:"), .pending], "still streaming")
         if case .text(let t) = DiagramBlocks.split("```diagram\nnot json\n```")[0] { XCTAssertTrue(t.contains("not json")) } else { XCTFail() }
+    }
+}
+
+/// A box from the layout, enough to ask whether a straight segment passes through it.
+private struct CGRectLike {
+    var o: DPoint, w: Double, h: Double
+    func crosses(_ a: DPoint, _ b: DPoint) -> Bool {
+        // The path is made of horizontal and vertical segments.
+        if a.x == b.x { return a.x > o.x && a.x < o.x + w && max(a.y, b.y) > o.y && min(a.y, b.y) < o.y + h }
+        return a.y > o.y && a.y < o.y + h && max(a.x, b.x) > o.x && min(a.x, b.x) < o.x + w
     }
 }

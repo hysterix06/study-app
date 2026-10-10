@@ -8,10 +8,10 @@ import Foundation
 /// Two kinds:
 /// - `graph`: an x-y graph on a 0-10 grid (economics graphs, cost curves, any labelled chart without real data).
 /// - `flow`: 2-8 steps joined by arrows, optionally a cycle (processes, cause and effect).
-public struct Diagram: Codable, Equatable, Sendable {
+public struct Diagram: Codable, Hashable, Sendable {
     public enum Kind: String, Codable, Sendable { case graph, flow }
 
-    public struct Curve: Codable, Equatable, Sendable {
+    public struct Curve: Codable, Hashable, Sendable {
         public var label: String?
         public var points: [DPoint]
         public var dashed: Bool
@@ -22,7 +22,7 @@ public struct Diagram: Codable, Equatable, Sendable {
     }
 
     /// A labelled point. `xTick`/`yTick` draw dashed guides down and across to the axes, labelled there (Q*, P*).
-    public struct Marker: Codable, Equatable, Sendable {
+    public struct Marker: Codable, Hashable, Sendable {
         public var label: String?
         public var at: DPoint
         public var xTick: String?
@@ -32,14 +32,14 @@ public struct Diagram: Codable, Equatable, Sendable {
     }
 
     /// A shaded region, such as consumer surplus or deadweight loss.
-    public struct Area: Codable, Equatable, Sendable {
+    public struct Area: Codable, Hashable, Sendable {
         public var label: String?
         public var points: [DPoint]
         public init(label: String?, points: [DPoint]) { self.label = label; self.points = points }
     }
 
     /// A shift or movement, such as D → D′.
-    public struct Arrow: Codable, Equatable, Sendable {
+    public struct Arrow: Codable, Hashable, Sendable {
         public var label: String?
         public var from: DPoint
         public var to: DPoint
@@ -295,7 +295,8 @@ public enum DiagramLayout {
         case .flow:
             let cols = flowColumns(d.steps.count, width: width)
             let rows = Int((Double(d.steps.count) / Double(cols)).rounded(.up))
-            return Double(rows) * 86 + (d.cycle ? 22 : 0) + titled + 8
+            // Rows of boxes, the gaps between them, and room under the last row for a cycle's way back.
+            return Double(rows) * 86 - 28 + (d.cycle ? 22 : 0) + (d.title == nil ? 4 : 26) + 6
         }
     }
 
@@ -363,11 +364,14 @@ public enum DiagramLayout {
         if let t = d.title { out.append(.text(t, at: DPoint(width / 2, 15), anchor: .middle, role: .title, series: nil)) }
         let cols = flowColumns(d.steps.count, width: width)
         let gap = 34.0, boxH = 58.0, rowH = 86.0
-        let boxW = (width - 8 - gap * Double(cols - 1)) / Double(cols)
+        // A cycle over several rows goes back round the left side, so it needs a gutter there.
+        let rounds = d.cycle && d.steps.count > cols
+        let left = rounds ? 18.0 : 4.0
+        let boxW = (width - left - 4 - gap * Double(cols - 1)) / Double(cols)
         var frames: [(DPoint, Double, Double)] = []
         for (i, step) in d.steps.enumerated() {
             let row = i / cols, col = i % cols
-            let o = DPoint(4 + Double(col) * (boxW + gap), top + Double(row) * rowH)
+            let o = DPoint(left + Double(col) * (boxW + gap), top + Double(row) * rowH)
             frames.append((o, boxW, boxH))
             out.append(.box(origin: o, width: boxW, height: boxH))
             let lines = wrap(step, width: boxW - 12, lines: 3)
@@ -393,7 +397,15 @@ public enum DiagramLayout {
         if d.cycle, frames.count >= 2, let (last, w, h) = frames.last {
             let (first, _, _) = frames[0]
             let below = (frames.map { $0.0.y }.max() ?? 0) + h + 16
-            arrow([DPoint(last.x + w / 2, last.y + h + 3), DPoint(last.x + w / 2, below), DPoint(first.x + w / 2, below), DPoint(first.x + w / 2, first.y + h + 3)])
+            if rounds {
+                // Down from the last box, along the bottom, up the left gutter and into the first box's side, never
+                // through another box.
+                let gutter = left / 2
+                arrow([DPoint(last.x + w / 2, last.y + h + 3), DPoint(last.x + w / 2, below), DPoint(gutter, below),
+                       DPoint(gutter, first.y + h / 2), DPoint(first.x - 3, first.y + h / 2)])
+            } else {
+                arrow([DPoint(last.x + w / 2, last.y + h + 3), DPoint(last.x + w / 2, below), DPoint(first.x + w / 2, below), DPoint(first.x + w / 2, first.y + h + 3)])
+            }
         }
         return out
     }

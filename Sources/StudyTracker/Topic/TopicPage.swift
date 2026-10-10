@@ -49,7 +49,16 @@ struct TopicPage: View {
                             }
                         }.fixedSize()
                     }
-                    LessonKitView(blocks: blocks(t, number: number, lesson: lesson))
+                    VStack(alignment: .leading, spacing: 8) {
+                        SectionHeader(title: "Notebook page")
+                        NotebookPageView(topic: t, number: number, guide: store.notebook(topicId: t.id))
+                    }
+                    if let lesson {
+                        VStack(alignment: .leading, spacing: 8) {
+                            SectionHeader(title: "Lesson")
+                            LessonKitView(blocks: LessonKit.lesson(lesson, store: store))
+                        }
+                    }
                     let sources = store.coverage(topicId: t.id)
                     if !sources.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
@@ -89,15 +98,6 @@ struct TopicPage: View {
         } else {
             EmptyState(text: "This topic is no longer in the path.")
         }
-    }
-
-    func blocks(_ t: PathTopic, number: String, lesson: TopicLesson?) -> [[String: Any]] {
-        var out: [[String: Any]] = [["type": "divider", "text": "Notebook page"], LessonKit.page(t, number: number, guide: model.store.notebook(topicId: t.id))]
-        if let lesson {
-            out.append(["type": "divider", "text": "Lesson"])
-            out += LessonKit.lesson(lesson, store: model.store)
-        }
-        return out
     }
 
     func set(_ t: PathTopic, _ state: String?) {

@@ -137,16 +137,22 @@ public struct NotebookTerm: Codable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey { case term, definition, courseWording = "course_wording", sourceChunkIds = "source_chunk_ids", locator }
 }
 
-/// A picture to draw: what to draw and label, and (from a strong model) a reference drawing to check against.
+/// A picture to draw: what to draw and label, and a reference drawing to check against. Graphs and processes come as
+/// data the app draws (`diagram`); anything else (a labelled structure, a cycle of parts) as a simple SVG.
 public struct NotebookDiagram: Codable, Hashable, Sendable {
     public var title: String
     public var draw: String
     public var labels: [String]
-    /// Sanitised SVG, drawn in the theme's text colour.
+    /// A graph or a flow, drawn by the app in the theme's colours.
+    public var diagram: Diagram?
+    /// Sanitised SVG, drawn in the theme's text colour. Only when `diagram` can't show the picture.
     public var svg: String?
-    public init(title: String, draw: String, labels: [String] = [], svg: String? = nil) {
-        self.title = title; self.draw = draw; self.labels = labels; self.svg = svg
+    public init(title: String, draw: String, labels: [String] = [], diagram: Diagram? = nil, svg: String? = nil) {
+        self.title = title; self.draw = draw; self.labels = labels; self.diagram = diagram; self.svg = svg
     }
+
+    /// Whether there's a reference drawing to show.
+    public var hasDrawing: Bool { diagram != nil || svg != nil }
 }
 
 public struct NotebookFormula: Codable, Hashable, Sendable {

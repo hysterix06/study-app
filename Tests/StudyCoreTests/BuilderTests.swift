@@ -209,6 +209,40 @@ final class CourseBuilderTests: XCTestCase {
         XCTAssertFalse(store.builderStepFailedRecently(step, now: Date().addingTimeInterval(13 * 3600)), "tried again after half a day")
     }
 
+    func testNotebookPicturesPreferDataTheAppDraws() throws {
+        XCTAssertFalse(call("save_path", ["course_id": ids.hm, "units": twoUnits()]).isError)
+        let topic = store.topics(courseId: ids.hm)[0]
+        let line = #"<svg viewBox="0 0 10 10"><line x1="0" y1="10" x2="10" y2="0" stroke="black"/></svg>"#
+        let r = call("save_notebook", ["course_id": ids.hm, "pages": [["topic_id": topic.id, "terms": [["term": "Overbooking", "definition": "Selling more rooms than exist."]],
+            "diagrams": [
+                ["title": "Demand", "draw": "A line sloping down.", "svg": line,
+                 "diagram": ["kind": "graph", "x_label": "Rooms", "y_label": "Price", "curves": [["label": "D", "points": [[1, 9], [9, 1]]]]]],
+                ["title": "Booking steps", "draw": "Three boxes.", "diagram": ["kind": "flow", "steps": ["Forecast", "Overbook", "Review"], "cycle": true]],
+                ["title": "Hotel floor", "draw": "Rooms along a corridor.", "svg": line],
+            ]]]])
+        XCTAssertFalse(r.isError, "\(r.json)")
+        let pictures = try XCTUnwrap(store.notebook(topicId: topic.id)).diagrams
+        XCTAssertEqual(pictures.count, 3)
+        XCTAssertEqual(pictures[0].diagram?.curves.first?.label, "D")
+        XCTAssertNil(pictures[0].svg, "drawn as data when it can be, so the SVG isn't kept")
+        XCTAssertEqual(pictures[1].diagram?.steps, ["Forecast", "Overbook", "Review"])
+        XCTAssertNil(pictures[2].diagram)
+        XCTAssertNotNil(pictures[2].svg, "anything else stays a sanitised SVG")
+        XCTAssertTrue(pictures.allSatisfy(\.hasDrawing))
+    }
+
+    func testABrokenDiagramIsReportedAndLeavesWhatToDraw() throws {
+        XCTAssertFalse(call("save_path", ["course_id": ids.hm, "units": twoUnits()]).isError)
+        let topic = store.topics(courseId: ids.hm)[0]
+        let r = call("save_notebook", ["course_id": ids.hm, "pages": [["topic_id": topic.id, "terms": [["term": "Overbooking", "definition": "x"]],
+            "diagrams": [["title": "Broken", "draw": "A line.", "diagram": ["kind": "graph", "curves": [["label": "one point", "points": [[1, 1]]]]]]]]]])
+        XCTAssertFalse(r.isError)
+        XCTAssertTrue((r.json["warnings"] as? [String])?.contains { $0.contains("fewer than two points") } == true, "\(r.json)")
+        let picture = try XCTUnwrap(store.notebook(topicId: topic.id)?.diagrams.first)
+        XCTAssertFalse(picture.hasDrawing)
+        XCTAssertEqual(picture.draw, "A line.")
+    }
+
     func testCourseBuildingTasks() {
         XCTAssertEqual(AITask.buildPath.degradesTo, .buildPathBasic)
         XCTAssertEqual(AITask.writeNotebook.engineLane, .builder)
@@ -325,6 +359,24 @@ final class BasicBuilderPipelineTests: XCTestCase {
         XCTAssertNil(page.diagrams[0].svg, "free AI writes what to draw, not a drawing")
     }
 
+    func testABiggerFreeModelMayDrawAGraph() async throws {
+        try store.savePath(courseId: ids.hm, PathInput(units: [.init(title: "U", topics: [.init(title: "Overbooking")])]), tier: "basic", builtWith: "x")
+        let topic = store.topics(courseId: ids.hm)[0]
+        let p = ScriptedProvider(descriptor: testDescriptor(context: 128_000), replies: [{ r in
+            XCTAssertNotNil(r.responseSchema?.schema["properties"]?["diagrams"]?["items"]?["properties"]?["diagram"], "offered on a 128k model")
+            return ChatResponse(text: """
+                {"terms":[{"term":"Overbooking","definition":"Selling more rooms than exist.","course_wording":"","chunk":0}],
+                 "diagrams":[{"title":"Booking curve","draw":"Bookings rise towards capacity.","labels":["capacity"],
+                              "diagram":{"kind":"graph","x_label":"Days","y_label":"Bookings","curves":[{"label":"bookings","points":[[0,1],[9,9]]}]}}],
+                 "formulas":[]}
+                """)
+        }])
+        _ = try await pipelines(p, task: .writeNotebookBasic).writeNotebookBasic(courseId: ids.hm, topicIds: [topic.id])
+        XCTAssertEqual(store.notebook(topicId: topic.id)?.diagrams.first?.diagram?.curves.first?.label, "bookings")
+        XCTAssertNil(Pipelines.basicPageSchema(diagrams: false).schema["properties"]?["diagrams"]?["items"]?["properties"]?["diagram"],
+                     "not offered to a small model")
+    }
+
     func testABasicLessonLeavesOutAnUncitedAngle() async throws {
         try store.savePath(courseId: ids.hm, PathInput(units: [.init(title: "U", topics: [.init(title: "Overbooking", sources: [.init(materialId: lecture, chunkIds: [chunks[0]])])])]),
                            tier: "basic", builtWith: "x")
@@ -418,7 +470,9 @@ final class SampleCourseTests: XCTestCase {
         let topics = store.topics(courseId: hm.id)
         XCTAssertEqual(topics.count, 6)
         XCTAssertEqual(store.notebooks(courseId: hm.id).count, 6, "the whole notebook guide")
-        XCTAssertNotNil(store.notebooks(courseId: hm.id).values.first { !$0.diagrams.isEmpty }?.diagrams.first?.svg, "one reference drawing")
+        let pictures = store.notebooks(courseId: hm.id).values.flatMap(\.diagrams)
+        XCTAssertEqual(pictures.filter { $0.diagram != nil }.count, 2, "a graph and a process, drawn by the app")
+        XCTAssertEqual(pictures.filter { $0.svg != nil }.count, 1, "a labelled structure as SVG")
         XCTAssertEqual(topics.filter { store.lesson(topicId: $0.id) != nil }.count, 3)
         XCTAssertEqual(topics.filter(\.inNotebook).map(\.notebookPage), ["2", "3"])
         XCTAssertGreaterThanOrEqual(store.practiceItems(courseId: hm.id).filter { $0.source == "course" }.count, 3, "Tutorial 4, word for word")

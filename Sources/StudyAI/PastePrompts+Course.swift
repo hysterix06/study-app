@@ -23,7 +23,8 @@ public extension PastePrompts {
     """
     static let notebookExample = """
     {"pages": [{"topic_id": 12, "terms": [{"term": "…", "definition": "…", "course_wording": "…", "source_chunk_ids": [41]}],
-     "diagrams": [{"title": "…", "draw": "…", "labels": ["…"], "svg": "<svg viewBox=\\"0 0 200 120\\">…</svg>"}],
+     "diagrams": [{"title": "…", "draw": "…", "labels": ["…"], "diagram": {"kind": "graph", "curves": […]}},
+                  {"title": "…", "draw": "…", "labels": ["…"], "svg": "<svg viewBox=\\"0 0 200 120\\">…</svg>"}],
      "formulas": [{"latex": "…", "meaning": "…"}], "links": ["← 1.2 …"]}]}
     """
     static let lessonExample = """

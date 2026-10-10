@@ -114,7 +114,7 @@ struct PagesStep: View {
             let n = c.progress.topicIds.count
             StepLayout(heading: "Page \(c.progress.index + 1) of \(n)",
                        note: "Copy the words and draw the pictures by hand. Short and neat beats complete: this page is what you'll revise from.") {
-                LessonKitView(blocks: [LessonKit.page(t, number: c.numbers[t.id] ?? "", guide: model.store.notebook(topicId: t.id), showMark: false)])
+                NotebookPageView(topic: t, number: c.numbers[t.id] ?? "", guide: model.store.notebook(topicId: t.id), showMark: false)
             } actions: {
                 TextField("Page in your notebook (optional)", text: $c.pageNumber).frame(width: 230).textFieldStyle(.roundedBorder)
                 Spacer()
@@ -194,7 +194,10 @@ struct LearnStep: View {
             let lesson = store.lesson(topicId: t.id)
             let nextTitle = c.progress.steps.drop { $0 != .learn }.dropFirst().first?.title ?? "Finish"
             StepLayout(heading: nil, note: nil) {
-                LessonKitView(blocks: blocks(t, lesson: lesson))
+                NotebookDivider(text: t.inNotebook ? "Your notebook page\(t.notebookPage.map { " · p. \($0)" } ?? "")" : "Your notebook page: write it first")
+                NotebookPageView(topic: t, number: c.numbers[t.id] ?? "", guide: store.notebook(topicId: t.id), showMark: false)
+                let rest = blocks(t, lesson: lesson)
+                if !rest.isEmpty { LessonKitView(blocks: rest) }
             } actions: {
                 if lesson == nil {
                     Label("The lesson is being written. Your notebook page and the slides are here meanwhile.", systemImage: "hourglass")
@@ -206,12 +209,10 @@ struct LearnStep: View {
         }
     }
 
-    /// A glance at the notebook page (the guide, when it isn't written yet), then the lesson; without a lesson, the
-    /// course's own slides on the topic.
+    /// After a glance at the notebook page: the lesson, or without one, the course's own slides on the topic.
     func blocks(_ t: PathTopic, lesson: TopicLesson?) -> [[String: Any]] {
         let store = model.store
-        var out: [[String: Any]] = [["type": "divider", "text": t.inNotebook ? "Your notebook page\(t.notebookPage.map { " · p. \($0)" } ?? "")" : "Your notebook page: write it first"]]
-        out.append(LessonKit.page(t, number: c.numbers[t.id] ?? "", guide: store.notebook(topicId: t.id), showMark: false))
+        var out: [[String: Any]] = []
         if let lesson {
             let kinds: Set<String>? = c.mode == .quick ? ["idea", "course_angle"] : nil
             out.append(["type": "divider", "text": "Lesson"])
@@ -335,7 +336,7 @@ struct RecallStep: View {
                        note: c.pageShown ? "Check what you recalled against the page." :
                         "Cover \(t.notebookPage.map { "page \($0)" } ?? "this topic's page") in your notebook. Say the words out loud and redraw the pictures, then check.") {
                 if c.pageShown {
-                    LessonKitView(blocks: [LessonKit.page(t, number: c.numbers[t.id] ?? "", guide: model.store.notebook(topicId: t.id), showMark: false)])
+                    NotebookPageView(topic: t, number: c.numbers[t.id] ?? "", guide: model.store.notebook(topicId: t.id), showMark: false)
                 }
             } actions: {
                 Spacer()

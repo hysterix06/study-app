@@ -71,14 +71,14 @@ Header: course dot, name, code, instructor, *Edit*. Five tabs:
 | Tab | Shows |
 | --- | --- |
 | **Path** | Who built it ("Built by the course builder · Claude Code", "Basic version, built with free AI", "Outline from your lectures") and what the builder is doing now; *Build with Claude* (or *Copy for Claude.ai* / *Open in Claude Desktop* without Claude Code); the course's next session with *Start*; how to learn it; units with numbered topics, each with its summary and tags (exam-critical, taught on a day, notebook page, mastery). Context menu: *Study this now*, *I know this*, *Hide*, *Bring back*. |
-| **Notebook** | "The whole course: N pages · about X to write", pages written, *Write next pages*, *Index* (number, topic, page, to copy into the notebook), *Print or PDF…*. Then the whole guide on one page: unit dividers and a dotted page per topic with Words (and the course's wording with its slide), Pictures (reference drawing, what to draw and label) and Formulas, plus *Mark written* / *Change* (asks for the page number). |
+| **Notebook** | "The whole course: N pages · about X to write", pages written, *Write next pages*, *Index* (number, topic, page, to copy into the notebook), *Print or PDF…*. Then the whole guide on one page, drawn natively: unit dividers and a dotted page per topic with Words (and the course's wording with its slide), Pictures (reference drawing: a graph or process drawn by the app, or a simple SVG; what to draw and label) and Formulas (typeset), plus *Mark written* / *Change* (asks for the page number). |
 | **Angles** | How the course grades (from the course builder), where past exams give marks (bars per topic), the kinds of questions they ask, and the topics the course stresses. |
 | **Files** | Files grouped by use (shapes your path, practice, exams, course info, not used), each with its use chip and the reason it was sorted that way. |
 | **Deadlines** | Grade card, open and done deadlines, class times. |
 
 ### 3.3 Topic (`topic/{id}`)
 
-Number and title, mastery and tags, summary and objectives, *Study this now*, *Write its page* (when it isn't written), *More* (I know this, Hide). Then the notebook page and the lesson (LessonKit), where the course teaches it (files with slide locators) and its practice problems.
+Number and title, mastery and tags, summary and objectives, *Study this now*, *Write its page* (when it isn't written), *More* (I know this, Hide). Then the notebook page (native) and the lesson (LessonKit), where the course teaches it (files with slide locators) and its practice problems.
 
 ### 3.4 Session (full window)
 
@@ -146,7 +146,7 @@ Older links still open: `today`, `study/…` and `review/…` → Home; `inbox/�
 | `Course/` | `PathTab`, `NotebookTab`, `AnglesTab`, `FilesTab` |
 | `Topic/` | `TopicPage` |
 | `Session/` | `SessionController`, `SessionView` (every step) |
-| `Components/` | `Theme`, `LessonKit` (renderer, printing), `CardReviewer`, `AssignmentLine` |
+| `Components/` | `Theme`, `NotebookPageView` (notebook pages, formulas, drawings), `DiagramView`, `LessonKit` (lessons, printing), `CardReviewer`, `AssignmentLine` |
 | `Settings/` | `AISettingsSimple`, `AIHistory`, `ConnectionsSettings` |
 | `Schedule/` | `ICSPreviewSheet` |
 | `Views/` | Calendar, Assignments, Courses (course page, Deadlines tab, editor), File page, Settings, Setup, Moodle settings, chat and paste sheets, palette and menu bar |

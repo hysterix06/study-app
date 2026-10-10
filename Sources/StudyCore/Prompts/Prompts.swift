@@ -81,8 +81,16 @@ public enum Prompts {
       words at university level. Where the course defines a term itself, add course_wording, close to its text, with
       source_chunk_ids. Never make up the course's wording.
     - diagrams: 0-3 pictures that make the topic click (a graph, a cycle, a structure, a timeline), each with draw (how
-      to draw it by hand), labels, and svg: a simple reference drawing with a viewBox, using lines, paths, basic shapes
-      and short text labels; no colours, images or scripts. Keep it drawable by hand in a minute or two.
+      to draw it by hand), labels, and a reference drawing the student checks theirs against:
+      - a graph or a process: diagram, data the app draws. A graph is on a 0-10 grid:
+        {"kind":"graph","x_label":"Quantity","y_label":"Price","curves":[{"label":"S","points":[[1,1],[9,9]]},
+        {"label":"D","points":[[1,9],[9,1]]}],"points":[{"label":"E","x":5,"y":5,"x_tick":"Q*","y_tick":"P*"}],
+        "areas":[{"label":"CS","points":[[0,9],[5,5],[0,5]]}],"arrows":[{"label":"shift","from":[6,8],"to":[8,8]}]}
+        (smooth: true for a curve through 3+ points, dashed: true for a guide). A process, timeline or cycle is
+        {"kind":"flow","steps":["…","…"],"cycle":false} with 2-8 short steps.
+      - anything else (a labelled structure): svg, a simple drawing with a viewBox, using lines, paths, basic shapes
+        and short text labels; no colours, images or scripts.
+      Keep it drawable by hand in a minute or two.
     - formulas: 0-6 formulas in LaTeX, each with what it means and what each symbol stands for.
     - links: earlier topics it builds on, like "← 1.2 Demand curves".
     Favour definitions and pictures over prose: a page should take about 5 minutes to copy.

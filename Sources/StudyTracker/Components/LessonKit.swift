@@ -60,7 +60,7 @@ enum LessonKit {
             }
             b["diagrams"] = g.diagrams.map { d -> [String: Any] in
                 var x: [String: Any] = ["title": d.title, "draw": d.draw, "labels": d.labels]
-                if let s = d.svg { x["svg"] = s }
+                if let s = d.diagram.map({ DiagramSVG.render($0) }) ?? d.svg { x["svg"] = s }
                 return x
             }
             b["formulas"] = g.formulas.map { ["latex": $0.latex, "meaning": $0.meaning] }

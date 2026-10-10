@@ -55,6 +55,18 @@ cp "$DIST/study-tracker.mcpb" "$APP/Contents/Resources/study-tracker.mcpb"
 # Bundle.module in an executable target breaks signing.)
 rm -rf "$APP/Contents/Resources/LessonKit"
 ditto Resources/LessonKit "$APP/Contents/Resources/LessonKit"
+# SwiftMath's fonts (formulas on notebook pages). Its Bundle.module looks in Contents/Resources only when SwiftPM's
+# swiftbuild backend generated it; the native backend looks at the bundle root, which can't be signed, and SwiftMath
+# would crash on the first formula. So check, and stop rather than ship that.
+ACCESSOR="$(find .build/out/Intermediates.noindex/SwiftMath.build/Release -name resource_bundle_accessor.swift 2>/dev/null | head -1)"
+if [[ -z "$ACCESSOR" ]] || ! grep -q "Bundle.main.resourceURL" "$ACCESSOR"; then
+  echo "error: SwiftMath wasn't built with the swiftbuild backend (Swift 6.4+ uses it by default)." >&2
+  exit 1
+fi
+rm -rf "$APP/Contents/Resources/SwiftMath_SwiftMath.bundle"
+ditto "$BIN/SwiftMath_SwiftMath.bundle" "$APP/Contents/Resources/SwiftMath_SwiftMath.bundle"
+rm -rf "$APP/Contents/Resources/Licenses"
+ditto Resources/Licenses "$APP/Contents/Resources/Licenses"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -39,16 +39,25 @@ struct NotebookTab: View {
                 if showIndex {
                     NotebookIndex(topics: topics, numbers: numbers)
                 } else {
-                    LessonKitView(blocks: guideBlocks(topics: topics, numbers: numbers, pages: pages, actions: true)) { name, id in
-                        guard let t = topics.first(where: { $0.id == id }) else { return }
-                        NotebookMarking.ask(topic: t, model: model, change: name == "unmark")
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(model.store.units(courseId: course.id).enumerated()), id: \.element.id) { i, unit in
+                            let mine = topics.filter { $0.unitId == unit.id }
+                            if !mine.isEmpty {
+                                NotebookDivider(text: "Unit \(i + 1) · \(unit.title)")
+                                ForEach(mine) { t in
+                                    NotebookPageView(topic: t, number: numbers[t.id] ?? "", guide: pages[t.id]) {
+                                        NotebookMarking.ask(topic: $0, model: model, change: $0.inNotebook)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    /// The whole guide in path order, with a divider for each unit.
+    /// The whole guide in path order, with a divider for each unit, for printing.
     func guideBlocks(topics: [PathTopic], numbers: [Int: String], pages: [Int: TopicNotebook], actions: Bool) -> [[String: Any]] {
         var blocks: [[String: Any]] = []
         for (i, unit) in model.store.units(courseId: course.id).enumerated() {

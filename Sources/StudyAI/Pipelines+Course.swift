@@ -341,8 +341,13 @@ public extension Pipelines {
 
     // MARK: Basic notebook guide
 
-    static func basicPageSchema() -> ResponseSchema {
-        ResponseSchema(name: "notebook_page", schema: [
+    /// Models with room for it (24k context or more) may add a graph or a flow the app draws.
+    var pageDiagrams: Bool { info.contextTokens >= 24_000 }
+
+    static func basicPageSchema(diagrams: Bool = false) -> ResponseSchema {
+        var picture: [String: JSONValue] = ["title": ["type": "string"], "draw": ["type": "string"], "labels": ["type": "array", "items": ["type": "string"]]]
+        if diagrams { picture["diagram"] = JSONValue(any: Diagram.jsonSchema) }
+        return ResponseSchema(name: "notebook_page", schema: [
             "type": "object",
             "properties": [
                 "terms": ["type": "array", "items": [
@@ -352,7 +357,7 @@ public extension Pipelines {
                 ]],
                 "diagrams": ["type": "array", "items": [
                     "type": "object",
-                    "properties": ["title": ["type": "string"], "draw": ["type": "string"], "labels": ["type": "array", "items": ["type": "string"]]],
+                    "properties": .object(picture.keys.sorted().map { ($0, picture[$0]!) }),
                     "required": ["title", "draw", "labels"],
                 ]],
                 "formulas": ["type": "array", "items": [
@@ -375,6 +380,12 @@ public extension Pipelines {
     two sentences) and labels (what to label).
     formulas: only the standard formulas of this topic, written as textbooks write them (LaTeX without $), each with
     what it means. Most topics have none: then [].
+    """
+
+    static let basicDiagramInstructions = """
+    diagram (in a picture, optional): only for a graph or a process. graph: a 0-10 grid; curves with [x, y] points (straight
+    lines need 2, set smooth for curves through 3+); points for intersections, with x_tick/y_tick such as "Q*" to label
+    the axes; areas for shaded regions; arrows for shifts. flow: 2-8 short steps, cycle true if the last leads back to the first.
     """
 
     /// A topic's place in the course and the course's own text on it, numbered by chunk so an answer can cite it.
@@ -407,8 +418,9 @@ public extension Pipelines {
             if let page = store.notebook(topicId: t.id), (StudyStore.tierRank[page.tier] ?? 0) >= 1 { continue }
             progress("Notebook page \(i + 1) of \(topics.count): \(t.title)")
             let brief = topicBrief(t, numbers: numbers, budget: textBudget(answerTokens: 1_500, cap: 12_000))
-            let json = try await structured([.system(Self.courseRules), .user(brief.text + "\n\n" + Self.basicPageInstructions)],
-                                            schema: Self.basicPageSchema(), maxOutput: 1_500, report: &report)
+            let instructions = Self.basicPageInstructions + (pageDiagrams ? "\n" + Self.basicDiagramInstructions : "")
+            let json = try await structured([.system(Self.courseRules), .user(brief.text + "\n\n" + instructions)],
+                                            schema: Self.basicPageSchema(diagrams: pageDiagrams), maxOutput: pageDiagrams ? 2_200 : 1_500, report: &report)
             let terms: [[String: Any]] = (json["terms"]?.array ?? []).prefix(8).compactMap { x in
                 guard let term = x["term"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !term.isEmpty else { return nil }
                 var d: [String: Any] = ["term": String(term.prefix(80)), "definition": String((x["definition"]?.string ?? "").prefix(400))]
@@ -421,8 +433,10 @@ public extension Pipelines {
             guard !terms.isEmpty else { report.warnings.append("\(t.title): no words came back."); continue }
             let diagrams: [[String: Any]] = (json["diagrams"]?.array ?? []).prefix(2).compactMap { x in
                 guard let title = x["title"]?.string?.nilIfEmpty else { return nil }
-                return ["title": String(title.prefix(120)), "draw": String((x["draw"]?.string ?? "").prefix(400)),
-                        "labels": (x["labels"]?.array ?? []).compactMap(\.string).prefix(12).map { String($0.prefix(60)) }]
+                var d: [String: Any] = ["title": String(title.prefix(120)), "draw": String((x["draw"]?.string ?? "").prefix(400)),
+                                        "labels": (x["labels"]?.array ?? []).compactMap(\.string).prefix(12).map { String($0.prefix(60)) }]
+                if pageDiagrams, let raw = x["diagram"], !raw.isNull { d["diagram"] = raw.any }
+                return d
             }
             let formulas: [[String: Any]] = (json["formulas"]?.array ?? []).prefix(6).compactMap { x in
                 guard let latex = x["latex"]?.string?.nilIfEmpty else { return nil }

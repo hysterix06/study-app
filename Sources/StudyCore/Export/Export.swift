@@ -111,7 +111,7 @@ public enum Exporter {
                     }
                     for (j, d) in page.diagrams.enumerated() {
                         guide += "\n**Draw: \(d.title).** \(d.draw)\(d.labels.isEmpty ? "" : " Label: \(d.labels.joined(separator: ", ")).")\n"
-                        if let svg = d.svg {
+                        if let svg = d.diagram.map({ DiagramSVG.render($0) }) ?? d.svg {
                             try fm.createDirectory(at: pictures, withIntermediateDirectories: true)
                             let name = Slug.make("\(n) \(t.title) \(j + 1)") + ".svg"
                             // The sanitiser writes the namespace on the root; drawings saved without one get it here.

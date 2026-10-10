@@ -125,12 +125,22 @@ public enum SampleData {
         ] : [])
         let saved = try store.savePath(courseId: rm, path, tier: "full", builtWith: "the sample", createdBy: "app")
         func id(_ title: String) -> Int? { saved.topicIds[StudyStore.topicKey(title)] }
-        let demandCurve = """
-        <svg viewBox="0 0 220 150"><line x1="30" y1="10" x2="30" y2="130" stroke="currentColor" stroke-width="2"/>\
-        <line x1="30" y1="130" x2="210" y2="130" stroke="currentColor" stroke-width="2"/>\
-        <line x1="45" y1="25" x2="195" y2="120" stroke="currentColor" stroke-width="2"/>\
-        <text x="4" y="18" font-size="11" fill="currentColor">Price</text><text x="160" y="145" font-size="11" fill="currentColor">Rooms sold</text>\
-        <text x="150" y="90" font-size="11" fill="currentColor">Demand</text></svg>
+        // Graphs and processes are data the app draws; other pictures (a labelled structure) are simple SVG.
+        let demandCurve = Diagram(kind: .graph, xLabel: "Rooms sold", yLabel: "Price",
+                                  curves: [.init(label: "D", points: [DPoint(1, 9), DPoint(9, 1)]),
+                                           .init(label: "D′", points: [DPoint(3, 9), DPoint(10, 2)], dashed: true)],
+                                  markers: [.init(label: nil, at: DPoint(5, 5), xTick: "Q", yTick: "P")],
+                                  arrows: [.init(label: "busy week", from: DPoint(3.8, 6.5), to: DPoint(5.2, 6.5))])
+        let overbookingSteps = Diagram(kind: .flow, steps: ["Forecast no-shows", "Weigh spoilage against walk cost", "Set the overbooking level",
+                                                             "Check what happened on the night"], cycle: true)
+        let nightCapacity = """
+        <svg viewBox="0 0 300 92"><text x="10" y="14" font-size="10" fill="currentColor">reservations</text>\
+        <rect x="10" y="20" width="250" height="34" fill="none" stroke="currentColor" stroke-width="2"/>\
+        <line x1="180" y1="20" x2="180" y2="54" stroke="currentColor" stroke-width="2"/>\
+        <line x1="240" y1="14" x2="240" y2="66" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>\
+        <text x="95" y="42" font-size="11" text-anchor="middle" fill="currentColor">guests who arrive</text>\
+        <text x="208" y="42" font-size="10" text-anchor="middle" fill="currentColor">no-shows</text>\
+        <text x="240" y="80" font-size="10" text-anchor="middle" fill="currentColor">rooms run out</text></svg>
         """
         let wording = chunk("Measuring no-shows")
         let pages: [StudyStore.NotebookInput] = [
@@ -150,8 +160,8 @@ public enum SampleData {
             .init(topicId: id("Price elasticity and segments"), terms: [
                 NotebookTerm(term: "Price elasticity", definition: "How much demand changes when price changes."),
                 NotebookTerm(term: "Segment", definition: "A group of guests who book and respond to price alike, such as corporate or leisure."),
-            ], diagrams: [NotebookDiagram(title: "Demand curve", draw: "Price up the side, rooms sold along the bottom, a line sloping down.",
-                                          labels: ["Price", "Rooms sold", "Demand"], svg: demandCurve)]),
+            ], diagrams: [NotebookDiagram(title: "Demand curve", draw: "Price up the side, rooms sold along the bottom, a line sloping down; a busy week shifts it right.",
+                                          labels: ["Price", "Rooms sold", "D", "D′"], diagram: demandCurve)]),
             .init(topicId: id("Forecasting no-shows"), terms: [
                 NotebookTerm(term: "No-show", definition: "A guest with a reservation who neither arrives nor cancels."),
                 NotebookTerm(term: "No-show rate", definition: "The share of reservations for a date that turn out to be no-shows.",
@@ -161,6 +171,13 @@ public enum SampleData {
                 NotebookTerm(term: "Overbooking", definition: "Accepting more reservations than rooms, expecting some guests not to come."),
                 NotebookTerm(term: "Spoilage", definition: "A room left empty that could have been sold."),
                 NotebookTerm(term: "Walk cost", definition: "What it costs to send a guest to another hotel."),
+            ], diagrams: [
+                NotebookDiagram(title: "Setting the level", draw: "Four boxes in a circle, arrows going round.", diagram: overbookingSteps),
+                NotebookDiagram(title: "One night's capacity", draw: "A long box of reservations; mark where the no-shows start and where the rooms run out.",
+                                labels: ["reservations", "no-shows", "rooms"], svg: nightCapacity),
+            ], formulas: [
+                NotebookFormula(latex: "P(X > k) \\cdot \\bar{r} > P(X \\le k) \\cdot c_{\\text{walk}}",
+                                meaning: "Overbook room $k + 1$ while the chance of more than $k$ no-shows times the average rate $\\bar{r}$ beats the chance of $k$ or fewer times the walk cost. $X$ is the number of no-shows."),
             ]),
             .init(topicId: id("Walking guests"), terms: [
                 NotebookTerm(term: "Walking a guest", definition: "Moving a guest with a reservation to another hotel because yours is full."),

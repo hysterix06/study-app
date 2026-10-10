@@ -194,9 +194,9 @@ extension ToolCatalog {
         Tool(name: "save_notebook", title: "Save notebook pages",
              description: """
              Save the notebook page guide for up to 12 topics: the words (term and definition, plus the course's own wording \
-             with the chunks it comes from), the pictures (what to draw and label, and optionally a simple SVG to check \
-             against) and the formulas. The student copies each page by hand; aim for about 5 minutes per page. Never \
-             changes what the student marked as written.
+             with the chunks it comes from), the pictures (what to draw and label, and a reference drawing: diagram data \
+             the app draws for a graph or a process, otherwise a simple SVG) and the formulas. The student copies each page \
+             by hand; aim for about 5 minutes per page. Never changes what the student marked as written.
              """,
              schema: Schema.object([
                 "course_id": Schema.int("Course id"),
@@ -212,7 +212,8 @@ extension ToolCatalog {
                         "title": Schema.string("What the picture shows", max: 120),
                         "draw": Schema.string("How to draw it by hand, in one or two sentences", max: 400),
                         "labels": Schema.array(["type": "string", "maxLength": 60], "What to label", max: 12),
-                        "svg": Schema.string("Optional reference drawing: plain SVG with a viewBox (lines, paths, shapes, short text), no colours, images or scripts", max: 20_000),
+                        "diagram": Diagram.jsonSchema,
+                        "svg": Schema.string("Only when diagram can't show it (a labelled structure): plain SVG with a viewBox (lines, paths, shapes, short text), no colours, images or scripts", max: 20_000),
                      ], required: ["title", "draw"]), "0-3 pictures", max: 3),
                     "formulas": Schema.array(Schema.object(["latex": Schema.string("LaTeX, without $", max: 300),
                                                             "meaning": Schema.string("What it says and what each symbol is", max: 300)],
@@ -221,6 +222,7 @@ extension ToolCatalog {
                 ], required: ["topic_id", "terms"]), "One page per topic", max: 12, min: 1),
              ], required: ["course_id", "pages"]), write: true) { a, store in
             let cid = try courseId(a, store)
+            var warnings: [String] = []
             let pages = try a.objects("pages", max: 12).map { p in
                 StudyStore.NotebookInput(
                     topicId: try p.int("topic_id"),
@@ -229,8 +231,11 @@ extension ToolCatalog {
                                      courseWording: try t.optString("course_wording", max: 400), sourceChunkIds: try t.intArray("source_chunk_ids", max: 12))
                     },
                     diagrams: try p.objects("diagrams", max: 3, required: false).map { d in
-                        NotebookDiagram(title: try d.optString("title", max: 120) ?? "", draw: try d.optString("draw", max: 400) ?? "",
-                                        labels: try d.stringArray("labels", max: 12, itemMax: 60), svg: try d.optString("svg", max: 20_000))
+                        let (diagram, w) = Diagram.parse(d.raw["diagram"])
+                        warnings += w
+                        return NotebookDiagram(title: try d.optString("title", max: 120) ?? "", draw: try d.optString("draw", max: 400) ?? "",
+                                               labels: try d.stringArray("labels", max: 12, itemMax: 60), diagram: diagram,
+                                               svg: try d.optString("svg", max: 20_000))
                     },
                     formulas: try p.objects("formulas", max: 6, required: false).map { f in
                         NotebookFormula(latex: try f.string("latex", max: 300), meaning: try f.optString("meaning", max: 300) ?? "")
@@ -238,7 +243,11 @@ extension ToolCatalog {
                     links: try p.stringArray("links", max: 6, itemMax: 120))
             }
             let who = authorship(a, store)
-            do { return writeJSON(try store.saveNotebook(courseId: cid, pages, tier: who.tier, generatedBy: who.by)) }
+            do {
+                var r = try store.saveNotebook(courseId: cid, pages, tier: who.tier, generatedBy: who.by)
+                r.warnings += warnings
+                return writeJSON(r)
+            }
             catch let e as StoreError { throw toolError(e) }
         },
         Tool(name: "save_lessons", title: "Save lessons",

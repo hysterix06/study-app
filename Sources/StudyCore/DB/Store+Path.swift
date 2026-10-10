@@ -410,6 +410,8 @@ public extension StudyStore {
                 for var d in e.diagrams.prefix(3) {
                     d.title = String(d.title.prefix(120)); d.draw = String(d.draw.prefix(400))
                     d.labels = Array(d.labels.prefix(12)).map { String($0.prefix(60)) }
+                    // Drawn as data when it can be: crisp, themed, and a fraction of the size.
+                    if d.diagram != nil { d.svg = nil }
                     if let svg = d.svg?.nilIfEmpty {
                         d.svg = SVGSanitizer.sanitize(svg)
                         if d.svg == nil { r.warnings.append("\(t.title): the drawing for \"\(d.title)\" wasn't safe to show, so only what to draw is kept.") }

@@ -12,6 +12,10 @@ let package = Package(
         .library(name: "StudyCore", targets: ["StudyCore"]),
         .library(name: "StudyAI", targets: ["StudyAI"]),
     ],
+    dependencies: [
+        // Formulas on notebook pages, typeset natively (LaTeX to Core Text). MIT; its math fonts carry their own licences.
+        .package(url: "https://github.com/mgriebling/SwiftMath.git", exact: "1.7.3"),
+    ],
     targets: [
         // Framework-free domain logic, SQLite repositories, parsers, prompts.
         .target(
@@ -26,7 +30,8 @@ let package = Package(
         // behind canImport so the Windows/Linux build can use the rest.
         .target(name: "StudyAI", dependencies: ["StudyCore", "StudyMCPCore"], swiftSettings: swift5),
         // The macOS app.
-        .executableTarget(name: "StudyTracker", dependencies: ["StudyCore", "StudyMCPCore", "StudyAI"], swiftSettings: swift5),
+        .executableTarget(name: "StudyTracker", dependencies: ["StudyCore", "StudyMCPCore", "StudyAI",
+                                                             .product(name: "SwiftMath", package: "SwiftMath")], swiftSettings: swift5),
         .testTarget(
             name: "StudyCoreTests",
             dependencies: ["StudyCore", "StudyMCPCore", "StudyAI"],

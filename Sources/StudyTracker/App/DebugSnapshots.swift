@@ -6,6 +6,7 @@ import StudyCore
 /// Development aid: `-snapshotDir /path -snapshotRoutes today,calendar/month,course/*/concepts` renders the main
 /// window at each route to PNG files and quits. `*` picks a sample object (the course with the most concepts, the
 /// first assignment, the first lecture). `palette`, `review` and `assignments/board` open those overlays.
+/// `notebook/12` renders topic 12's notebook page by itself at full height, however tall it is.
 /// The app draws its own window, so no screen-recording permission is involved.
 @MainActor
 enum DebugSnapshots {
@@ -16,6 +17,12 @@ enum DebugSnapshots {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             for entry in entries {
+                if entry.hasPrefix("notebook/"), let id = Int(entry.dropFirst("notebook/".count)), let t = model.store.topic(id) {
+                    let page = NotebookPageView(topic: t, number: model.store.topicNumbers(courseId: t.courseId)[id] ?? "",
+                                                guide: model.store.notebook(topicId: id))
+                    await renderAlone(page, to: URL(fileURLWithPath: dir).appendingPathComponent("notebook-\(id).png"))
+                    continue
+                }
                 UserDefaults.standard.set(false, forKey: "assignments.board")
                 switch entry {
                 case "palette": model.showPalette = true
@@ -44,6 +51,21 @@ enum DebugSnapshots {
             }
             NSApp.terminate(nil)
         }
+    }
+
+    /// One view on its own, as tall as it needs to be, in the app's theme and appearance.
+    private static func renderAlone<V: View>(_ view: V, to file: URL, width: CGFloat = 760) async {
+        let host = NSHostingView(rootView: view.padding(20).frame(width: width).themed().canvasBackground())
+        host.appearance = NSApp.effectiveAppearance
+        let size = host.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = host
+        host.frame = NSRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: file)
     }
 
     /// Web views draw in another process, so the window capture shows them blank: each one is asked for its own

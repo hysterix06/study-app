@@ -127,7 +127,8 @@ swift run StudyTracker      # runs without bundling (notifications need the .app
 | `Sources/StudyMCPCore`, `Sources/study-mcp` | The MCP server |
 | `Sources/StudyAI` | AI engines, pipelines, the chat loop and AI-app connectors. Apple-only code is behind `canImport`, so this module stays portable. |
 | `Sources/StudyTracker` | The SwiftUI app |
-| `Resources/LessonKit` | The lesson and notebook renderer: a page with marked and KaTeX, bundled (no network) |
+| `Resources/LessonKit` | The lesson renderer (and notebook printing): a page with marked and KaTeX, bundled (no network) |
+| `Resources/Licenses` | Licences for bundled third-party code (SwiftMath) |
 | `Tests/StudyCoreTests` | Tests and fixtures (sample Outlook, Moodle and shift `.ics` files; PPTX, DOCX and PDF files are generated during tests) |
 | `scripts/` | `build-app.sh`, plus `make_icon.py`, which generates the app icon from code |
 
