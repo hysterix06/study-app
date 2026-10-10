@@ -153,7 +153,8 @@ public struct ClaudeJob: Identifiable, Hashable {
             ("save_concepts", "concept", "concepts"), ("save_questions", "question", "questions"),
             ("propose_cards", "card to approve", "cards to approve"), ("propose_assignments", "deadline to confirm", "deadlines to confirm"),
             ("propose_study_blocks", "study block to review", "study blocks to review"), ("save_cornell_sheet", "sheet", "sheets"),
-            ("save_note", "note", "notes"), ("record_session", "session", "sessions"),
+            ("save_note", "note", "notes"), ("save_study_notes", "page of study notes", "pages of study notes"),
+            ("record_session", "session", "sessions"),
         ]
         let parts = nouns.compactMap { tool, one, many -> String? in
             guard let n = results[tool], n > 0 else { return nil }

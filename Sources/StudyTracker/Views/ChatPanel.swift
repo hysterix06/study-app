@@ -85,7 +85,7 @@ struct ChatPanel: View {
                     .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(10)).fill(Theme.fillSubtle))
             }
         case .assistant:
-            Text(Self.markdown(e.text)).font(.stBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            ReplyView(text: e.text)
         case .event:
             Label(e.text, systemImage: "checkmark.circle").font(.stSmall).foregroundStyle(Theme.textTertiary)
         case .error:

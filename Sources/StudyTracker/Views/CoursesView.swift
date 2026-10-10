@@ -327,11 +327,36 @@ struct CourseNotes: View {
     var course: Course
     @State private var open: Note?
     @State private var composing = false
+    @State private var reading = false
 
     var body: some View {
         let _ = model.revision
         let notes = model.store.notes(courseId: course.id)
+        let lectures = model.store.courseStudyNotes(courseId: course.id)
+        let withNotes = Set(lectures.map(\.material.id))
+        let missing = model.store.materials(courseId: course.id)
+            .filter { $0.processedAt != nil && ($0.role == .lecture || $0.role == .reading) && !withNotes.contains($0.id) }
         VStack(alignment: .leading, spacing: 8) {
+            if !missing.isEmpty {
+                HStack {
+                    Text("\(missing.count) processed lecture\(missing.count == 1 ? " has" : "s have") no study notes yet.").font(.stSmall).foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    Button("Make study notes") { for m in missing { model.jobs.makeStudyNotes(material: m.id) } }
+                        .buttonStyle(QuietButtonStyle()).help(model.jobs.describe(.process))
+                }
+                .padding(.bottom, 6)
+            }
+            if !lectures.isEmpty {
+                Panel {
+                    SectionHeader(title: "Course notes · \(lectures.count) lecture\(lectures.count == 1 ? "" : "s")", trailing: AnyView(HStack(spacing: 12) {
+                        Button("Read") { reading = true }.buttonStyle(.borderless).font(.stSmall)
+                        Button("Export") { model.exportCourseNotes(course) }.buttonStyle(.borderless).font(.stSmall)
+                    }))
+                    Text("Every lecture's study notes in order, with a formula sheet and a glossary. Put together on your Mac, so it needs no AI.")
+                        .font(.stSmall).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.bottom, 10)
+            }
             HStack {
                 SectionHeader(title: "Sheets and notes")
                 Button("New note") { composing = true }.buttonStyle(.borderless).font(.stSmall)
@@ -357,6 +382,64 @@ struct CourseNotes: View {
         }
         .sheet(item: $open) { n in NoteViewer(note: n) }
         .sheet(isPresented: $composing) { NoteComposer(courseId: course.id) }
+        .sheet(isPresented: $reading) { CourseNotesReader(course: course) }
+    }
+}
+
+/// The whole course as one document, compiled from each lecture's study notes.
+struct CourseNotesReader: View {
+    @Environment(AppModel.self) var model
+    @Environment(\.dismiss) var dismiss
+    var course: Course
+
+    var body: some View {
+        let lectures = model.store.courseStudyNotes(courseId: course.id)
+        let formulas: [(lecture: String, formula: String)] = lectures.flatMap { l in l.notes.formulas.map { (lecture: l.material.title, formula: $0.text) } }
+        let glossary = model.store.concepts(courseId: course.id).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("\(course.displayName) · Course notes").font(.stHeading)
+                Spacer()
+                Button("Export") { model.exportCourseNotes(course) }
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 30) {
+                    ForEach(Array(lectures.enumerated()), id: \.offset) { _, l in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button { dismiss(); model.openMaterial(l.material.id) } label: {
+                                Text(l.material.title).font(.stHeading).foregroundStyle(Theme.textPrimary)
+                            }.buttonStyle(.plain)
+                            StudyNotesView(notes: l.notes, showTerms: false)
+                        }
+                    }
+                    if !formulas.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Formula sheet").font(.stHeading)
+                            ForEach(Array(formulas.enumerated()), id: \.offset) { _, f in
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(f.formula).font(.system(size: Theme.Size.s, design: .monospaced)).textSelection(.enabled)
+                                    Spacer()
+                                    Text(f.lecture).font(.stSmall).foregroundStyle(Theme.textTertiary)
+                                }
+                            }
+                        }
+                    }
+                    if !glossary.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Glossary").font(.stHeading)
+                            ForEach(glossary) { c in
+                                (Text(c.name).bold() + Text(": " + c.definition)).font(.stBody).textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                .padding(.trailing, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(24).frame(width: 720, height: 660)
     }
 }
 
@@ -373,7 +456,11 @@ struct NoteViewer: View {
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
             ScrollView {
-                Text(LocalizedStringKey(note.contentMd)).font(.stBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                if let notes = StudyNotes.decode(note.dataJson) {
+                    StudyNotesView(notes: notes).padding(.trailing, 8)
+                } else {
+                    Text(LocalizedStringKey(note.contentMd)).font(.stBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }.padding(24).frame(width: 640, height: 560)
     }

@@ -282,6 +282,20 @@ enum ToolCatalog {
                  "material_id": $0.materialId as Any, "updated_at": tzString($0.updatedAt, store)]
             })
         },
+        Tool(name: "get_study_notes", title: "Study notes",
+             description: "A lecture's study notes: the slides reorganized into short sections with definitions, formulas, examples and diagrams, citing slides. Far smaller than the slides: read these first and call get_chunks only for detail they don't cover. With course_id, every lecture's notes in order.",
+             schema: Schema.object(["material_id": Schema.int("Material id"), "course_id": Schema.int("Course id")]), write: false) { a, store in
+            if let mid = try a.optInt("material_id") {
+                guard store.material(mid) != nil else { throw ToolError.notFound("Material \(mid) does not exist.") }
+                guard let n = store.studyNotes(materialId: mid) else {
+                    throw ToolError.notFound("Material \(mid) has no study notes yet.", hint: "They're made when the lecture is processed. Use get_chunks instead.")
+                }
+                return .json(["material_id": mid, "notes": n.notes.compact, "updated_at": tzString(n.note.updatedAt, store)])
+            }
+            guard let cid = try a.optInt("course_id") else { throw ToolError.invalid("Provide material_id or course_id.") }
+            guard store.course(cid) != nil else { throw ToolError.notFound("Course \(cid) does not exist.") }
+            return .json(store.courseStudyNotes(courseId: cid).map { ["material_id": $0.material.id, "title": $0.material.title, "notes": $0.notes.compact] })
+        },
         Tool(name: "get_handwriting_captures", title: "Handwritten sheets",
              description: "Photos of the student's handwritten notes for a material: text recognized on their Mac and a quick local check of which concepts appear.",
              schema: Schema.object(["material_id": Schema.int("Material id")], required: ["material_id"]), write: false) { a, store in
@@ -405,6 +419,23 @@ enum ToolCatalog {
             return writeJSON(try store.saveCornellSheet(materialId: try a.int("material_id"), title: try a.string("title", max: 120), cues: cues,
                                                         summaryPrompt: try a.string("summary_prompt", max: 300),
                                                         lookYourselfChunkIds: try a.intArray("look_yourself_chunk_ids")))
+        },
+        Tool(name: "save_study_notes", title: "Save study notes",
+             description: "Save a lecture's study notes: its content reorganized into 2-10 short sections in teaching order, keeping only what a student needs (definitions, mechanisms, formulas with their symbols, a worked example, common mistakes) and dropping agendas, housekeeping and repetition. Every point cites chunk ids. A section may carry a diagram (graph or flow) that the app draws. Key terms come from the lecture's saved concepts. Replaces earlier AI notes for the lecture.",
+             schema: Schema.object([
+                "material_id": Schema.int("Material id"),
+                "overview": Schema.string("Two or three sentences: what the lecture is about and why it matters", max: 600),
+                "sections": Schema.array(StudyNotes.sectionSchema(includeDiagram: true), "Sections in teaching order", max: 16, min: 1),
+                "takeaways": Schema.array(["type": "string"], "3-5 things to remember", max: 8),
+             ], required: ["material_id", "sections"]), write: true) { a, store in
+            let sections = try a.objects("sections", max: 16).map { s in
+                StudyStore.NoteSectionInput(title: try s.string("title", max: 100), points: try s.objects("points", max: 12).map { p in
+                    StudyStore.NotePointInput(text: try p.string("text", max: 500), kind: try p.optString("kind", max: 20) ?? "point",
+                                              sourceChunkIds: try p.intArray("source_chunk_ids"))
+                }, diagram: s.raw["diagram"])
+            }
+            return writeJSON(try store.saveStudyNotes(materialId: try a.int("material_id"), overview: try a.optString("overview", max: 600) ?? "",
+                                                      sections: sections, takeaways: try a.stringArray("takeaways", max: 8, itemMax: 300)))
         },
         Tool(name: "save_note", title: "Save note",
              description: "Save a gap report, summary, session log, handwriting review, rubric check, practice set or exam-pattern analysis. Upserts by title over Claude's own notes; never touches the student's notes.",

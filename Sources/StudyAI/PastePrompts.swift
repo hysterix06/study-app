@@ -15,6 +15,11 @@ public struct PastePrompts {
       "concepts": [{"name": "…", "definition": "one plain sentence", "importance": 1, "source_chunk_ids": [123], "links": [{"to_name": "…", "relation": "part_of"}]}],
       "questions": [{"kind": "recall", "prompt": "…", "answer_key": "…", "concept_name": "…", "source_chunk_ids": [123], "difficulty": 2}],
       "cards": [{"front": "…", "back": "…", "concept_name": "…", "source_chunk_ids": [123]}],
+      "note_sections": [{"title": "…", "points": [{"text": "…", "kind": "definition", "source_chunk_ids": [123]}],
+        "diagram": {"kind": "graph", "x_label": "Quantity", "y_label": "Price", "curves": [{"label": "S", "points": [[1, 1], [9, 9]]}, {"label": "D", "points": [[1, 9], [9, 1]]}],
+                    "points": [{"label": "E", "x": 5, "y": 5, "x_tick": "Q*", "y_tick": "P*"}]}}],
+      "overview": "two or three sentences: what this is about and why it matters",
+      "takeaways": ["…"],
       "cues": [{"text": "a question or key term with no answer", "kind": "question", "source_chunk_ids": [123]}],
       "summary_prompt": "one line the student answers in their own words",
       "hardest_topics": ["topic: short reason"]
@@ -29,8 +34,9 @@ public struct PastePrompts {
     public func prompts(_ task: AITask, materialId: Int, charLimit: Int = 45_000, now: Date = Date()) throws -> [String] {
         guard Self.supported.contains(task) else { throw AIError.unavailable("\(task.label) needs an AI that can talk with Study Tracker.") }
         guard let material = store.material(materialId) else { throw AIError.badResponse("Material \(materialId) no longer exists.") }
-        let chunks = store.chunks(materialId: materialId)
-        guard !chunks.isEmpty else { throw AIError.unavailable("\(material.title) has no text yet.") }
+        let all = store.chunks(materialId: materialId)
+        guard !all.isEmpty else { throw AIError.unavailable("\(material.title) has no text yet.") }
+        let chunks = MaterialCondenser.condense(all).chunks
         var parts: [[String]] = [[]]
         var size = 0
         for c in chunks {
@@ -53,9 +59,10 @@ public struct PastePrompts {
                 Course: \(course). Material: "\(material.title)".
                 Concepts that already exist in this course (reuse the exact name when this material covers one): \(existing.isEmpty ? "none" : existing.prefix(60).joined(separator: "; ")).
 
-                \(Pipelines.lectureInstructions(concepts: per(12), questions: per(16), cards: per(10)))
+                \(Pipelines.lectureInstructions(concepts: per(12), questions: per(16), cards: per(10), sections: per(8)))
                 - cues: up to \(per(16)) Cornell-sheet cues: short questions or key terms with NO answers.
                 - summary_prompt and hardest_topics (three, each with a short reason).
+                - overview (two or three sentences) and takeaways (three to five).
 
                 Reply with ONLY a JSON object like this (no other text):
                 \(Self.lectureExample)

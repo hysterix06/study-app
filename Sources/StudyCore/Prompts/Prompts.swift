@@ -7,12 +7,19 @@ public enum Prompts {
 
     public static let studyRules = """
     You are helping a student learn using the Study Tracker tools.
-    - The student handwrites their own notes. Never write notes for them to copy.
+    - Each processed lecture has study notes (get_study_notes): the slides condensed and reorganized. Read them
+      first; they are a fraction of the slides' size. Call get_chunks only for detail the notes don't cover.
+    - The Cornell sheet is the student's own: they fill it by hand from memory. Never fill in its answers.
     - Cite the chunk locator (e.g. "slide 12") for every claim you make about the material.
     - Stay grounded in the material. If something is unclear or missing, say so. Do not invent.
       You may add a real-world example to aid understanding, but label it "(outside the material)".
-    - Chunks with image_count > 0 contain pictures, charts or diagrams. Call get_slide_images to look at
-      them before describing them. If you still cannot read something, tell the student to check it themselves.
+    - Chunks with image_count > 0 contain pictures, charts or diagrams. Their recognized text is in the chunk. Call
+      get_slide_images only when the meaning depends on the picture. If you cannot read something, tell the student
+      to check it themselves.
+    - To draw a graph or a process in a reply, write a ```diagram code block holding JSON the app draws:
+      {"kind":"graph","x_label":"Quantity","y_label":"Price","curves":[{"label":"S","points":[[1,1],[9,9]]}],
+      "points":[{"label":"E","x":5,"y":5,"x_tick":"Q*","y_tick":"P*"}]} on a 0-10 grid (areas and arrows too),
+      or {"kind":"flow","steps":["…","…"],"cycle":false}.
     - Ask one thing at a time. Do not reveal answers before the student has attempted them.
     - Ratings for flashcards are the student's own. Never choose one for them.
     - You cannot delete anything. Only use the Study Tracker tools for saving.
@@ -81,8 +88,9 @@ public enum Prompts {
             body = """
             Process \(materialLine(mid)).
             1. Call get_material(\(mid)), then get_chunks until you have every chunk (follow next_ordinal).
-               If total_tokens exceeds 60000, work in sections of at most 30 chunks and call save_concepts after each section.
-               For slides with image_count > 0 whose meaning depends on the picture, call get_slide_images (a few at a time).
+               Use max_tokens 30000 so it takes few calls. Skip title, agenda and "thank you" slides and footers repeated
+               on every slide. If total_tokens exceeds 60000, work in sections and call save_concepts after each one.
+               Call get_slide_images only for a few slides whose meaning depends on the picture (at most 6 in total).
             2. Call get_concepts(course_id) first. Where this lecture covers a concept that already exists in the course,
                reuse its exact name so ideas connect across lectures.
             3. Identify 6-15 core concepts. For each: a plain-language definition (one sentence), importance
@@ -94,11 +102,15 @@ public enum Prompts {
                Call save_questions (create_cards: false).
             5. Propose 6-12 flashcards with propose_cards: one small idea per card, short fronts and backs (the student
                approves or rewrites them in the app).
-            6. Build a Cornell-style sheet with save_cornell_sheet: 8-20 cues (questions and key terms, NO answers), one
+            6. Save study notes with save_study_notes: an overview, then 2-10 sections in teaching order that keep only
+               what a student needs (definitions, mechanisms, formulas with what each symbol means, one worked example
+               where the slides give numbers, common mistakes) and drop agendas, housekeeping and repetition. Add a
+               diagram to a section that explains a graph (supply and demand, cost curves…) or a process. 3-5 takeaways.
+            7. Build a Cornell-style sheet with save_cornell_sheet: 8-20 cues (questions and key terms, NO answers), one
                summary prompt for the student to answer in their own words, and the chunk ids with images the student
                should look at themselves.
-            7. Call mark_material_processed, then record_session (kind: process).
-            8. Reply with: concept NAMES only (no definitions), the three topics that look hardest and why (one line each),
+            8. Call mark_material_processed, then record_session (kind: process).
+            9. Reply with: concept NAMES only (no definitions), the three topics that look hardest and why (one line each),
                and a reminder to write the sheet from memory first, then photograph it for review_handwriting.
                Do not include definitions or answers in your reply.
             """
@@ -123,7 +135,8 @@ public enum Prompts {
             Run a Feynman check on \(conceptName).
             1. Ask the student to explain it as if teaching a first-year student, in their own words. Do not correct
                anything yet. Wait.
-            2. Call get_concepts and get_chunks for its sources. Compare. Report: what is accurate, what is missing,
+            2. Call get_concepts, then get_study_notes for its lecture (get_chunks only for its sources if there are no
+               notes). Compare. Report: what is accurate, what is missing,
                what is wrong, each with a locator.
             3. Do not just supply the fix. Ask ONE probing question aimed at the biggest gap. Allow up to three rounds.
             4. End with what they now explain well. Call record_session (kind: feynman) with weak_concept_names.
@@ -165,7 +178,8 @@ public enum Prompts {
             Review the student's handwritten notes for \(materialLine(mid)).
             1. Call get_handwriting_captures(material_id: \(mid)) for text recognized on their Mac. If the student attaches
                a photo, read it directly (it is more accurate than the recognized text).
-            2. Call get_concepts(material_id: \(mid)) and get_chunks as needed. For each concept, classify their notes as
+            2. Call get_concepts(material_id: \(mid)) and get_study_notes(material_id: \(mid)); get_chunks only if a detail is
+               missing. For each concept, classify their notes as
                correct, partial, missing, or wrong, with the locator.
             3. Lead with what they captured well. Then ask ONE question about the biggest gap and let them fix it in their
                own words. Never write the correction for them to copy.
@@ -191,7 +205,8 @@ public enum Prompts {
             let count = args["count"].flatMap(Int.init) ?? 5
             body = """
             Build \(count) calculation drills from \(materialLine(mid)).
-            1. Read the material with get_chunks. Find formulas and worked numbers (for example food and beverage cost
+            1. Call get_study_notes(material_id: \(mid)): its formula and example points list what the lecture computes. Use
+               get_chunks only if there are no notes or a worked example needs the original numbers. Find formulas and worked numbers (for example food and beverage cost
                percentage, labour cost, RevPAR, ADR, occupancy, break-even, yield, forecasting). Cite locators.
             2. Create problems in the same form with different numbers and a realistic hospitality context.
             3. Ask ONE problem at a time. Wait for the student's attempt. Check it; if wrong, give a hint first. Show the

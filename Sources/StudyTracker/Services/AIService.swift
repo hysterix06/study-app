@@ -48,6 +48,17 @@ final class AIService {
 
     func resetCLICache() { cachedCLI = nil }
 
+    /// The model Claude Code runs background tasks on ("haiku", "sonnet" or "opus").
+    var claudeModel: String {
+        let m = store.setting("claude_code_model") ?? ""
+        return ClaudeCodeProvider.models.contains { $0.id == m } ? m : ClaudeCodeProvider.defaultModel
+    }
+
+    /// An empty folder for Claude Code to run in, so no project's CLAUDE.md, settings or MCP servers load with it.
+    var claudeWorkingDirectory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("StudyTracker-claude", isDirectory: true)
+    }
+
     // MARK: Engines
 
     enum ProviderStatus: Equatable {

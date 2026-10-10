@@ -363,7 +363,9 @@ final class AppModel {
                 if !failed.isEmpty { parts.append(failed.count == 1 ? failed[0] : "\(failed.count) files could not be read.") }
                 self.show(parts.joined(separator: " "), error: imported.isEmpty && !failed.isEmpty)
                 self.enrichPendingImages()
-                if self.store.boolSetting("auto_process") { self.jobs.autoProcessReady() }
+                if self.store.boolSetting("auto_process") {
+                    self.jobs.autoProcessReady(ids: Set(results.compactMap { if case .imported(let id, _) = $0 { return id }; return nil }))
+                }
             }
         }
     }
@@ -496,6 +498,26 @@ final class AppModel {
     }
 
     // MARK: Cornell sheet
+
+    /// Writes a course's compiled study notes (diagrams as inline SVG) to the Export folder, and to Obsidian if set.
+    func exportCourseNotes(_ course: Course) {
+        let lectures = store.courseStudyNotes(courseId: course.id)
+        guard !lectures.isEmpty else { return }
+        let md = CourseNotesDoc.markdown(courseName: course.displayName, lectures: lectures, concepts: store.concepts(courseId: course.id), diagrams: .svg)
+        let name = Slug.make("\(course.displayName) course notes") + ".md"
+        let url = store.paths.export.appendingPathComponent(name)
+        do {
+            try FileManager.default.createDirectory(at: store.paths.export, withIntermediateDirectories: true)
+            try md.write(to: url, atomically: true, encoding: .utf8)
+            if let vault = store.setting("obsidian_vault_path"), !vault.isEmpty {
+                let dir = URL(fileURLWithPath: vault).appendingPathComponent("Study Tracker/\(Slug.make(course.displayName))")
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try? md.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+            }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            show("Saved \(course.displayName) course notes to the Export folder.")
+        } catch { fail(error) }
+    }
 
     func exportSheet(_ note: Note, print: Bool) {
         guard let sheet = CornellSheet.decode(note.dataJson) else { return }

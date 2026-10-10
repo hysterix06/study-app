@@ -20,6 +20,7 @@ struct MaterialPage: View {
                 default:
                     if m.status != "failed" {
                         StepTimeline(m: m)
+                        MaterialNotesPanel(m: m)
                         MaterialStudyData(m: m)
                     }
                 }
@@ -127,7 +128,7 @@ struct StepTimeline: View {
         let steps = [
             Step(id: 1, title: "Recall", detail: "Write what you remember before looking. The AI compares it with the lecture.",
                  summary: recall.map { "Recalled \($0.itemsCorrect ?? 0) of \($0.itemsTotal ?? 0) concepts" } ?? "Recall session done", done: done("recall")),
-            Step(id: 2, title: "Learn", detail: "The AI reads the lecture and builds concepts, questions and your Cornell sheet.",
+            Step(id: 2, title: "Learn", detail: "The AI reads the lecture once and builds study notes with diagrams, concepts, questions, starter flashcards and your Cornell sheet.",
                  summary: "\(concepts.count) concepts · \(cards.count) cards", done: m.processedAt != nil),
             Step(id: 3, title: "Write", detail: "Fill the sheet by hand from memory, then photograph it for a gap check.",
                  summary: "\(captures.count) photo\(captures.count == 1 ? "" : "s") checked", done: !captures.isEmpty),
@@ -202,6 +203,55 @@ struct StepTimeline: View {
     }
 }
 
+/// The lecture as study notes (made once when it was processed), and its starter flashcards.
+private struct MaterialNotesPanel: View {
+    @Environment(AppModel.self) var model
+    let m: Material
+    @State private var collapsed = false
+
+    var body: some View {
+        let _ = model.revision
+        let store = model.store
+        if let saved = store.studyNotes(materialId: m.id) {
+            let proposed = store.cards(status: "proposed", materialId: m.id)
+            Panel {
+                SectionHeader(title: "Study notes", trailing: AnyView(HStack(spacing: 12) {
+                    Button("Copy as Markdown") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(saved.notes.markdown(diagrams: .svg), forType: .string)
+                        model.show("Copied the study notes.")
+                    }.buttonStyle(.borderless).font(.stSmall)
+                    Button(collapsed ? "Show" : "Hide") { collapsed.toggle() }.buttonStyle(.borderless).font(.stSmall)
+                }))
+                if !collapsed { StudyNotesView(notes: saved.notes) }
+                if !proposed.isEmpty {
+                    Divider().padding(.vertical, 4)
+                    HStack(spacing: 10) {
+                        Label("\(proposed.count) starter flashcard\(proposed.count == 1 ? "" : "s") from this lecture", systemImage: "rectangle.on.rectangle")
+                            .font(.stBody)
+                        Spacer()
+                        Button("Look through them") { model.go(.inbox(.cards)) }.buttonStyle(QuietButtonStyle())
+                        Button("Add all to review") {
+                            model.run("Added \(proposed.count) card\(proposed.count == 1 ? "" : "s") to your reviews.") {
+                                try model.store.approveProposedCards(materialId: m.id)
+                                return nil
+                            }
+                        }.buttonStyle(PrimaryButtonStyle())
+                    }
+                }
+            }
+        } else if m.processedAt != nil {
+            Panel {
+                SectionHeader(title: "Study notes")
+                Text("This lecture has no study notes yet. Making them reads the slides once and leaves its concepts, questions and cards as they are.")
+                    .font(.stSmall).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                Button("Make study notes") { model.jobs.makeStudyNotes(material: m.id) }
+                    .buttonStyle(PrimaryButtonStyle()).help(model.jobs.describe(.process))
+            }
+        }
+    }
+}
+
 /// What this file has produced: concepts, cards, sessions and AI notes.
 private struct MaterialStudyData: View {
     @Environment(AppModel.self) var model
@@ -213,7 +263,7 @@ private struct MaterialStudyData: View {
         let concepts = store.concepts(materialId: m.id)
         let cards = store.cards(status: nil, materialId: m.id)
         let sessions = store.sessions(materialId: m.id, limit: 50)
-        let notes = store.notes(materialId: m.id).filter { $0.kind != "cornell_sheet" }
+        let notes = store.notes(materialId: m.id).filter { $0.kind != "cornell_sheet" && StudyNotes.decode($0.dataJson) == nil }
         VStack(alignment: .leading, spacing: 22) {
             if !concepts.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {

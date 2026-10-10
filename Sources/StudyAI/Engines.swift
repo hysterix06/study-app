@@ -217,19 +217,19 @@ public struct ProviderFactory: Sendable {
 public extension AITask {
     var toolNames: Set<String> {
         switch self {
-        case .process: return ["get_material", "get_chunks", "get_slide_images", "get_concepts", "save_concepts", "save_questions", "propose_cards", "save_cornell_sheet", "mark_material_processed", "record_session"]
+        case .process: return ["get_material", "get_chunks", "get_slide_images", "get_concepts", "save_concepts", "save_questions", "propose_cards", "save_study_notes", "save_cornell_sheet", "mark_material_processed", "record_session"]
         case .extractDeadlines: return ["get_material", "get_chunks", "propose_assignments"]
         case .examPatterns: return ["get_chunks", "get_slide_images", "get_concepts", "save_note", "save_questions"]
         case .checkDraft: return ["list_assignments", "list_materials", "get_chunks", "save_note"]
-        case .reviewNotes: return ["get_handwriting_captures", "get_concepts", "get_chunks", "save_note", "record_session"]
+        case .reviewNotes: return ["get_handwriting_captures", "get_concepts", "get_study_notes", "get_chunks", "save_note", "record_session"]
         case .quiz: return ["get_questions", "get_review_queue", "record_session"]
         case .recall: return ["get_concepts", "get_chunks", "save_note", "record_session"]
-        case .explain: return ["get_concepts", "get_chunks", "record_session"]
-        case .practice: return ["get_chunks", "save_questions", "save_note", "record_session"]
+        case .explain: return ["get_concepts", "get_study_notes", "get_chunks", "record_session"]
+        case .practice: return ["get_study_notes", "get_chunks", "save_questions", "save_note", "record_session"]
         case .weeklyPlan: return ["get_overview", "list_assignments", "get_schedule", "get_review_queue", "get_outcomes", "propose_study_blocks"]
         }
     }
 
     /// A free chat reads; it doesn't save.
-    static let freeChatTools: Set<String> = ["get_overview", "list_courses", "list_assignments", "get_schedule", "get_grade_summary", "list_materials", "get_chunks", "get_concepts"]
+    static let freeChatTools: Set<String> = ["get_overview", "list_courses", "list_assignments", "get_schedule", "get_grade_summary", "list_materials", "get_study_notes", "get_chunks", "get_concepts"]
 }
