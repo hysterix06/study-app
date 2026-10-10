@@ -158,62 +158,35 @@ final class ParserTests: XCTestCase {
         XCTAssertNotNil(store.materials(statuses: ["failed"]).first?.statusDetail)
     }
 
-    func testImportDedupesSuggestsCourseAndFiles() throws {
+    func testImportDedupesAndFilesUnderTheCourse() throws {
         let store = try makeStore()
         let ids = try seedCourses(store)
         let deck = try slides()
         guard case .imported(let id, _) = store.importMaterial(from: deck) else { return XCTFail() }
-        let m = store.material(id)!
-        XCTAssertEqual(m.suggestedCourseId, ids.hm, "HM210 in the filename")
-        XCTAssertEqual(m.status, "inbox")
-        XCTAssertTrue(m.storedPath!.contains("_unfiled"))
-        guard case .duplicate(let existing, _) = store.importMaterial(from: deck) else { return XCTFail("expected duplicate") }
-        XCTAssertEqual(existing, id)
-        try store.confirmMaterial(id, courseId: ids.hm)
         let filed = store.material(id)!
+        XCTAssertEqual(filed.suggestedCourseId, ids.hm, "HM210 in the filename")
+        XCTAssertEqual(filed.courseId, ids.hm, "a clear course is filed without asking")
         XCTAssertEqual(filed.status, "ready")
         XCTAssertTrue(filed.storedPath!.contains("/HM210/"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.paths.absolute(filed.storedPath!).path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.paths.absolute(filed.assetsPath!).path))
+        guard case .duplicate(let existing, _) = store.importMaterial(from: deck) else { return XCTFail("expected duplicate") }
+        XCTAssertEqual(existing, id)
     }
 
-    func testSkipLeavesInboxButKeepsLectureFiled() throws {
+    func testSettingAFileAsideKeepsItFiled() throws {
         let store = try makeStore()
         let ids = try seedCourses(store)
         guard case .imported(let id, _) = store.importMaterial(from: try slides(), courseId: ids.hm) else { return XCTFail() }
         XCTAssertEqual(store.unprocessedMaterials().map(\.id), [id])
-        XCTAssertEqual(store.inboxCount(), 1)
+        XCTAssertEqual(store.inboxCount(), 0, "nothing waits to be processed: files are read on their own")
         store.skipMaterial(id)
         XCTAssertTrue(store.unprocessedMaterials().isEmpty)
-        XCTAssertEqual(store.inboxCount(), 0)
-        XCTAssertEqual(store.material(id)?.courseId, ids.hm, "skipping keeps the lecture in its course")
-        XCTAssertNil(store.material(id)?.processedAt, "skipping is not processing, so Insights stay honest")
+        XCTAssertEqual(store.material(id)?.courseId, ids.hm, "setting a file aside keeps it in its course")
+        XCTAssertEqual(store.material(id)?.group, .notUsed)
+        XCTAssertNil(store.material(id)?.processedAt)
         try store.deleteMaterial(id)
         XCTAssertTrue(store.skippedMaterialIds().isEmpty, "SQLite can reuse the id; the next import must not inherit the skip")
     }
 
-    func testRoleGuessing() {
-        XCTAssertEqual(StudyStore.guessRole(filename: "HM210 Course Outline.pdf", title: "", text: ""), .syllabus)
-        XCTAssertEqual(StudyStore.guessRole(filename: "Marking rubric report.docx", title: "", text: ""), .rubric)
-        XCTAssertEqual(StudyStore.guessRole(filename: "Past paper 2024.pdf", title: "", text: ""), .pastExam)
-        XCTAssertEqual(StudyStore.guessRole(filename: "Assignment brief.pdf", title: "", text: ""), .brief)
-        XCTAssertEqual(StudyStore.guessRole(filename: "Week 3 slides.pptx", title: "", text: ""), .lecture)
-    }
-
-    func testCornellSheetPDF() throws {
-        let cues = (1...12).map { CornellSheet.Cue(text: "Why does cue \($0) matter for pricing decisions in a full-service hotel?", kind: "question", sourceLocators: ["slide \($0)"]) }
-        let sheet = CornellSheet(title: "Overbooking", courseCode: "HM210", materialTitle: "Week 3", date: "2026-09-28", cues: cues,
-                                 summaryPrompt: "In two sentences, when is overbooking worth the risk?", lookYourself: ["slide 2"])
-        let data = CornellRenderer.pdf(sheet, paper: .a4)
-        let doc = CGPDFDocument(CGDataProvider(data: data as CFData)!)!
-        XCTAssertGreaterThanOrEqual(doc.numberOfPages, 2, "12 cues × 5 ruled lines need more than one A4 page")
-        XCTAssertEqual(doc.page(at: 1)!.getBoxRect(.mediaBox).width, 595.28, accuracy: 0.1)
-        XCTAssertTrue(sheet.obsidianMarkdown.hasPrefix("---\ncourse: \"HM210\""))
-    }
-
-    func testCueGuardRejectsAnswers() {
-        XCTAssertTrue(StudyStore.cueLooksLikeAnswer(.init(text: "RevPAR: revenue per available room, ADR times occupancy", kind: "term", sourceChunkIds: [1])))
-        XCTAssertFalse(StudyStore.cueLooksLikeAnswer(.init(text: "RevPAR", kind: "term", sourceChunkIds: [1])))
-        XCTAssertFalse(StudyStore.cueLooksLikeAnswer(.init(text: "How is RevPAR calculated?", kind: "question", sourceChunkIds: [1])))
-    }
 }

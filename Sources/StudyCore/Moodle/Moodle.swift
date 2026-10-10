@@ -395,26 +395,37 @@ public enum MoodleSync {
                 for (mcid, course) in linked {
                     guard let sections = try? await client.call("core_course_get_contents", ["courseid": mcid]) as? [[String: Any]] else { continue }
                     for s in sections {
+                        let sectionName = s["name"] as? String
                         for mod in s["modules"] as? [[String: Any]] ?? [] {
                             guard ["resource", "folder"].contains(mod["modname"] as? String ?? "") else { continue }
+                            let moduleName = mod["name"] as? String
                             for f in mod["contents"] as? [[String: Any]] ?? [] {
                                 guard (f["type"] as? String) == "file", let name = f["filename"] as? String, let furl = f["fileurl"] as? String else { continue }
                                 let ext = (name as NSString).pathExtension.lowercased()
                                 guard MaterialParser.supportedExtensions.contains(ext), ["pptx", "pdf", "docx", "md", "txt"].contains(ext) else { continue }
                                 let size = (f["filesize"] as? NSNumber)?.intValue ?? 0
                                 guard size < MaterialParser.maxBytes else { continue }
+                                // Sorting and dating use where the file sits: its section ("Week 3", "Tutorials"), its
+                                // activity ("Tutorial 3") and any folder inside the activity ("Solutions").
+                                let folder = (f["filepath"] as? String)?.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+                                let hints = ImportHints(sectionName: sectionName?.nilIfEmpty,
+                                                        moduleName: [moduleName, folder].compactMap { $0?.nilIfEmpty }.joined(separator: " · ").nilIfEmpty)
                                 let modified = (f["timemodified"] as? NSNumber)?.intValue ?? 0
                                 let stableUid = "moodle:\(mcid):" + StudyStore.sha256(Data((furl + "\(modified)").utf8)).prefix(16)
-                                if (try? store.db.scalarInt("SELECT count(*) FROM materials WHERE external_uid = ?", [stableUid])) ?? 0 > 0 { continue }
+                                if let existing = try? store.db.scalarInt("SELECT id FROM materials WHERE external_uid = ?", [stableUid]), existing > 0 {
+                                    store.addHints(existing, hints)
+                                    continue
+                                }
                                 do {
                                     let data = try await client.download(furl)
                                     let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent(name)
                                     try FileManager.default.createDirectory(at: tmp.deletingLastPathComponent(), withIntermediateDirectories: true)
                                     try data.write(to: tmp)
-                                    let outcome = store.importMaterial(from: tmp, courseId: course.id, externalUid: stableUid, removeOriginal: true)
+                                    let outcome = store.importMaterial(from: tmp, courseId: course.id, externalUid: stableUid, hints: hints, removeOriginal: true)
                                     if case .imported = outcome { report.filesImported += 1 }
                                     if case .duplicate(let id, _) = outcome {
                                         _ = try? store.db.execute("UPDATE materials SET external_uid = COALESCE(external_uid, ?) WHERE id = ?", [stableUid, id])
+                                        store.addHints(id, hints)
                                     }
                                 } catch {
                                     report.errors.append("\(name): \(error)")

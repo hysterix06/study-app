@@ -45,7 +45,7 @@ struct ChatPanel: View {
                     }.disabled(!fit.isUsable)
                 }
                 Divider()
-                Button("AI settings…") { dismiss(); model.go(.connections(.ai)) }
+                Button("AI settings…") { dismiss(); model.go(.settings(.ai)) }
             } label: { Text(chat.engineName).font(.stSmall) }
                 .menuStyle(.borderlessButton).fixedSize().disabled(chat.isRunning)
             Button { confirmDelete = true } label: { Image(systemName: "trash") }.buttonStyle(.borderless).help("Delete chat")
@@ -91,7 +91,7 @@ struct ChatPanel: View {
         case .error:
             VStack(alignment: .leading, spacing: 6) {
                 Label(e.text, systemImage: "exclamationmark.triangle.fill").font(.stSmall).foregroundStyle(Theme.attention)
-                Button("AI settings") { model.go(.connections(.ai)) }.buttonStyle(.borderless).font(.stSmall)
+                Button("AI settings") { model.go(.settings(.ai)) }.buttonStyle(.borderless).font(.stSmall)
             }
         }
     }
@@ -174,7 +174,9 @@ struct PasteSheet: View {
         let job = model.store.job(request.jobId)
         VStack(alignment: .leading, spacing: 14) {
             Text(job?.label ?? "Copy for any chatbot").font(.stHeading)
-            Text("No AI is set up to do this here, so use any chatbot: free ChatGPT, Gemini, Claude, Brave Leo or another. Your material goes to whichever one you paste it into.")
+            Text(job?.task.isCourseBuilding == true
+                 ? "Paste this into Claude.ai (the free plan works) or another strong chatbot, then paste its answer back. Your course files go to whichever one you use."
+                 : "No AI is set up to do this here, so use any chatbot: free ChatGPT, Gemini, Claude, Brave Leo or another. Your material goes to whichever one you paste it into.")
                 .font(.stSmall).foregroundStyle(Theme.textSecondary)
             Panel {
                 SectionHeader(title: "1. Copy the prompt\(parts.count > 1 ? " (\(parts.count) parts; paste each one)" : "")")
@@ -195,7 +197,9 @@ struct PasteSheet: View {
                 SectionHeader(title: "2. Paste the chatbot's answer\(parts.count > 1 ? "s" : "") here")
                 TextEditor(text: $answer).font(.system(size: 12, design: .monospaced)).frame(minHeight: 160)
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.hairline))
-                Text("Study Tracker checks everything first: items that don't point at this material are skipped, and unclear dates are left out.")
+                Text(job?.task.isCourseBuilding == true
+                     ? "Study Tracker checks everything first: your progress stays with each topic, and anything said to come from your course must point at its slides."
+                     : "Study Tracker checks everything first: items that don't point at this material are skipped, and unclear dates are left out.")
                     .font(.stSmall).foregroundStyle(Theme.textTertiary)
             }
             if let report {
@@ -215,13 +219,13 @@ struct PasteSheet: View {
         }
         .padding(22).frame(width: 600)
         .onAppear {
-            guard let job, let mid = Int(job.args["material_id"] ?? "") else { error = "This job has nothing to copy."; return }
-            do { parts = try PastePrompts(store: model.store).prompts(job.task, materialId: mid) } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "\(error)" }
+            guard let job else { error = "This job has nothing to copy."; return }
+            do { parts = try PastePrompts(store: model.store).prompts(for: job) } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "\(error)" }
         }
     }
 
     func importAnswer(_ job: ClaudeJob?) {
-        guard let job, let mid = Int(job.args["material_id"] ?? "") else { return }
+        guard let job else { return }
         importing = true
         error = nil
         let store = model.store
@@ -229,9 +233,10 @@ struct PasteSheet: View {
         Task {
             do {
                 let host = try MCPToolHost(paths: store.paths, jobId: job.id)
-                let r = try await PastePrompts(store: store).importAnswer(job.task, materialId: mid, text: text, host: host)
+                let r = try await PastePrompts(store: store).importAnswer(for: job, text: text, host: host)
                 report = r
                 try? store.setJobState(job.id, .done, summary: r.summary)
+                model.jobs.afterSuccess(job)
                 model.refresh()
             } catch {
                 self.error = (error as? LocalizedError)?.errorDescription ?? "\(error)"

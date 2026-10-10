@@ -39,12 +39,11 @@ struct CourseDetail: View {
             ScrollView {
                 Group {
                     switch model.courseTab {
-                    case .overview: CourseOverview(course: course)
-                    case .assignments: CourseAssignments(course: course)
-                    case .materials: CourseMaterials(course: course)
-                    case .concepts: CourseConcepts(course: course)
-                    case .notes: CourseNotes(course: course)
-                    case .cards: CourseCards(course: course)
+                    case .path: PathTab(course: course)
+                    case .notebook: NotebookTab(course: course)
+                    case .angles: AnglesTab(course: course)
+                    case .files: FilesTab(course: course)
+                    case .deadlines: CourseDeadlines(course: course)
                     }
                 }.padding(24).contentWidth()
             }
@@ -86,9 +85,10 @@ struct CourseAssignments: View {
     }
 }
 
-// MARK: Overview
+// MARK: Deadlines
 
-struct CourseOverview: View {
+/// The course's grade, its deadlines and exams, and its class times.
+struct CourseDeadlines: View {
     @Environment(AppModel.self) var model
     var course: Course
     @State private var addingPattern = false
@@ -99,8 +99,9 @@ struct CourseOverview: View {
         let store = model.store
         VStack(alignment: .leading, spacing: 22) {
             GradeCard(course: course)
+            CourseAssignments(course: course)
             VStack(alignment: .leading, spacing: 6) {
-                SectionHeader(title: "Weekly schedule", trailing: AnyView(Button("Add class time") { addingPattern = true }.buttonStyle(.borderless).font(.stSmall)))
+                SectionHeader(title: "Class times", trailing: AnyView(Button("Add class time") { addingPattern = true }.buttonStyle(.borderless).font(.stSmall)))
                 let patterns = store.patterns(courseId: course.id)
                 if patterns.isEmpty { Text("No weekly classes yet.").font(.stBody).foregroundStyle(Theme.textSecondary) }
                 ForEach(patterns) { p in
@@ -112,21 +113,6 @@ struct CourseOverview: View {
                         Text("\(p.validFrom.string) → \(p.validTo.string)").font(.stSmall).foregroundStyle(Theme.textTertiary).monospacedDigit()
                         Button("Edit") { editPattern = p }.buttonStyle(.borderless).font(.stSmall)
                     }.font(.stBody).padding(8).background(RoundedRectangle(cornerRadius: Theme.corner(6)).fill(Theme.fillSubtle))
-                }
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                SectionHeader(title: "Upcoming")
-                let upcoming = store.assignments(AssignmentFilter(courseId: course.id)).filter { $0.isOpen }.prefix(7)
-                if upcoming.isEmpty { Text("Nothing open for this course.").font(.stBody).foregroundStyle(Theme.textSecondary) }
-                ForEach(Array(upcoming)) { a in AssignmentLine(a: a, courses: store.courseMap()).onTapGesture { model.openAssignment(a.id) } }
-            }
-            let weak = store.weakConcepts(courseId: course.id)
-            if !weak.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    SectionHeader(title: "Concepts flagged weak recently")
-                    ForEach(weak.prefix(6), id: \.concept.id) { w in
-                        HStack { Text(w.concept.name).font(.stBody); Spacer(); Text("\(w.count)×").font(.stSmall).foregroundStyle(Theme.textSecondary) }
-                    }
                 }
             }
         }
@@ -191,301 +177,11 @@ struct GradeCard: View {
 
 // MARK: Materials
 
-struct CourseMaterials: View {
-    @Environment(AppModel.self) var model
-    var course: Course
-    var body: some View {
-        let _ = model.revision
-        let list = model.store.materials(courseId: course.id)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                SectionHeader(title: "Materials")
-                Button("Add files…") { model.chooseFilesToImport() }.buttonStyle(.borderless).font(.stSmall)
-            }
-            if list.isEmpty { EmptyState(text: "Drop slides, PDFs or Word files here to add them to \(course.displayName).") }
-            ForEach(list) { m in MaterialRow(material: m) }
-        }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            loadURLs(providers) { model.importFiles($0, courseId: course.id) }
-            return true
-        }
-    }
-}
-
-struct MaterialRow: View {
-    @Environment(AppModel.self) var model
-    let m: Material
-    init(material: Material) { m = material }
-    var body: some View {
-        let concepts = model.store.concepts(materialId: m.id).count
-        let chunks = model.store.chunks(materialId: m.id)
-        let pictures = chunks.filter { !$0.images.isEmpty }.count
-        HStack(spacing: 10) {
-            Image(systemName: icon).frame(width: 18).foregroundStyle(Theme.textSecondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(m.title).font(.stBody).lineLimit(1)
-                HStack(spacing: 6) {
-                    Text(m.role.label)
-                    Text("·"); Text("\(chunks.count) \(m.kind == "slides" ? "slides" : "parts")")
-                    if pictures > 0 { Text("·"); Text("\(pictures) with pictures") }
-                    if m.processedAt != nil { Text("·"); Text("\(concepts) concepts") }
-                    if m.status == "failed" || m.status == "needs_ocr" { Text("·"); Text(m.statusDetail ?? m.status).foregroundStyle(Theme.attention) }
-                }.font(.stSmall).foregroundStyle(Theme.textTertiary).lineLimit(1)
-            }
-            Spacer()
-            if m.processedAt != nil { Chip(text: "Processed", systemImage: "checkmark") }
-            Menu {
-                Button("Open file") { if let p = m.storedPath { NSWorkspace.shared.open(model.store.paths.absolute(p)) } }
-                Menu("Move to") {
-                    ForEach(model.store.courses().filter { $0.id != m.courseId }) { c in
-                        Button(c.displayName) {
-                            model.run("Moved \(m.title) to \(c.displayName).") { try model.store.confirmMaterial(m.id, courseId: c.id, role: m.role); return nil }
-                        }
-                    }
-                }
-                Divider()
-                Button("Delete", role: .destructive) { model.run("Deleted \(m.title).") { try model.store.trashMaterial(m.id) } }
-            } label: { Image(systemName: "ellipsis.circle") }
-            .menuStyle(.borderlessButton).fixedSize()
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { model.openMaterial(m.id) }
-        .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
-    }
-    var icon: String {
-        switch m.kind { case "slides": return "rectangle.on.rectangle"; case "pdf": return "doc.richtext"; case "doc": return "doc.text"; case "image": return "photo"; default: return "text.alignleft" }
-    }
-}
-
 // MARK: Concepts
-
-struct CourseConcepts: View {
-    @Environment(AppModel.self) var model
-    var course: Course
-    @State private var name = ""
-    @State private var definition = ""
-    @State private var query = ""
-
-    var body: some View {
-        let _ = model.revision
-        let all = model.store.concepts(courseId: course.id)
-        let concepts = query.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.definition.localizedCaseInsensitiveContains(query) }
-        let names = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0.name) })
-        let links = model.store.conceptLinks(courseId: course.id)
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                SectionHeader(title: "\(all.count) concepts across lectures")
-                TextField("Filter", text: $query).textFieldStyle(.roundedBorder).frame(width: 200)
-            }
-            if all.isEmpty { EmptyState(text: "Concepts appear here when a lecture is processed, or add your own below.") }
-            ForEach([1, 2, 3], id: \.self) { imp in
-                let group = concepts.filter { $0.importance == imp }
-                if !group.isEmpty {
-                    Text(["Core", "Supporting", "Detail"][imp - 1]).font(.stSmallStrong).foregroundStyle(Theme.textTertiary)
-                    ForEach(group) { c in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(c.name).font(.stBodyStrong)
-                                if c.createdBy == "user" { Chip(text: "yours") }
-                                Spacer()
-                                Button { model.jobs.run(.explain, concept: c.id) } label: { Label(ClaudeTask.explain.label, systemImage: "person.wave.2") }
-                                    .buttonStyle(.borderless).font(.stSmall).help("Copy a Feynman-check prompt")
-                            }
-                            Text(c.definition).font(.stBody).foregroundStyle(Theme.textSecondary)
-                            let src = model.store.conceptSources(c.id)
-                            if !src.isEmpty {
-                                let grouped = Dictionary(grouping: src, by: \.materialTitle).sorted { $0.key < $1.key }
-                                Text(grouped.map { "\($0.key): " + $0.value.map(\.locator).joined(separator: ", ") }.joined(separator: " · "))
-                                    .font(.stSmall).foregroundStyle(Theme.textTertiary)
-                            }
-                            let out = links.filter { $0.from == c.id }
-                            if !out.isEmpty {
-                                Text(out.compactMap { l in names[l.to].map { "\(l.relation.replacingOccurrences(of: "_", with: " ")) → \($0)" } }.joined(separator: "   "))
-                                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
-                            }
-                        }
-                        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
-                    }
-                }
-            }
-            Divider().padding(.vertical, 6)
-            SectionHeader(title: "Add your own concept")
-            TextField("Name", text: $name).textFieldStyle(.roundedBorder)
-            TextField("Definition in your words", text: $definition, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...5)
-            Button("Add concept") {
-                model.run("Added \(name).") { try model.store.saveUserConcept(courseId: course.id, name: name, definition: definition, importance: 2); return nil }
-                name = ""; definition = ""
-            }.disabled(name.isEmpty || definition.isEmpty)
-        }
-    }
-}
 
 // MARK: Notes and sheets
 
-struct CourseNotes: View {
-    @Environment(AppModel.self) var model
-    var course: Course
-    @State private var open: Note?
-    @State private var composing = false
-
-    var body: some View {
-        let _ = model.revision
-        let notes = model.store.notes(courseId: course.id)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                SectionHeader(title: "Sheets and notes")
-                Button("New note") { composing = true }.buttonStyle(.borderless).font(.stSmall)
-            }
-            if notes.isEmpty { EmptyState(text: "Cornell sheets, gap reports and rubric checks from AI sessions appear here.") }
-            ForEach(notes) { n in
-                HStack(spacing: 10) {
-                    Image(systemName: n.kind == "cornell_sheet" ? "square.split.2x1" : "doc.plaintext").foregroundStyle(Theme.textSecondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(n.title).font(.stBody)
-                        Text("\(n.kind.replacingOccurrences(of: "_", with: " ").capitalizedFirst) · \(n.createdBy == "claude" ? "AI" : "You") · \(Formatters.day(n.updatedAt, tz: model.tz))")
-                            .font(.stSmall).foregroundStyle(Theme.textTertiary)
-                    }
-                    Spacer()
-                    if n.kind == "cornell_sheet" {
-                        Button("Print") { model.exportSheet(n, print: true) }.buttonStyle(QuietButtonStyle())
-                        Button("PDF") { model.exportSheet(n, print: false) }.buttonStyle(QuietButtonStyle())
-                    }
-                    Button("Open") { open = n }.buttonStyle(QuietButtonStyle())
-                }
-                .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
-            }
-        }
-        .sheet(item: $open) { n in NoteViewer(note: n) }
-        .sheet(isPresented: $composing) { NoteComposer(courseId: course.id) }
-    }
-}
-
-struct NoteViewer: View {
-    @Environment(AppModel.self) var model
-    @Environment(\.dismiss) var dismiss
-    var note: Note
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(note.title).font(.stHeading)
-                Spacer()
-                if note.createdBy == "user" { Button("Delete", role: .destructive) { model.run("Deleted note.") { try model.store.trashNote(note.id) }; dismiss() } }
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
-            ScrollView {
-                Text(LocalizedStringKey(note.contentMd)).font(.stBody).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }.padding(24).frame(width: 640, height: 560)
-    }
-}
-
-struct NoteComposer: View {
-    @Environment(AppModel.self) var model
-    @Environment(\.dismiss) var dismiss
-    var courseId: Int
-    @State private var title = ""
-    @State private var content = ""
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            TextField("Title", text: $title).textFieldStyle(.roundedBorder)
-            TextEditor(text: $content).font(.stBody).frame(minHeight: 260).overlay(RoundedRectangle(cornerRadius: Theme.corner(6)).strokeBorder(Theme.hairline))
-            HStack { Spacer(); Button("Cancel") { dismiss() }; Button("Save") {
-                model.run("Saved note.") { _ = try model.store.saveUserNote(courseId: courseId, materialId: nil, title: title, content: content); return nil }
-                dismiss()
-            }.buttonStyle(PrimaryButtonStyle()).disabled(title.isEmpty) }
-        }.padding(20).frame(width: 560)
-    }
-}
-
 // MARK: Cards
-
-struct CourseCards: View {
-    @Environment(AppModel.self) var model
-    var course: Course
-    @State private var front = ""
-    @State private var back = ""
-
-    var body: some View {
-        let _ = model.revision
-        let proposed = model.store.cards(courseId: course.id, status: "proposed")
-        let active = model.store.cards(courseId: course.id, status: "active")
-        let suspended = model.store.cards(courseId: course.id, status: "suspended")
-        let questions = model.store.questions(courseId: course.id)
-        let carded = Set(active.compactMap(\.questionId))
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                SectionHeader(title: "\(active.count) cards · \(active.filter { $0.due <= Date() }.count) due")
-                Button("Review this course") { model.startReview(courseId: course.id) }.buttonStyle(PrimaryButtonStyle())
-            }
-            if !proposed.isEmpty {
-                SectionHeader(title: "Proposed by AI — approve or rewrite in your own words")
-                ForEach(proposed) { c in ProposedCardRow(card: c) }
-            }
-            SectionHeader(title: "Write a card")
-            TextField("Front (a question)", text: $front).textFieldStyle(.roundedBorder)
-            TextField("Back (short answer)", text: $back).textFieldStyle(.roundedBorder)
-            Button("Add card") {
-                model.run("Card added.") { _ = try model.store.addUserCard(courseId: course.id, materialId: nil, front: front, back: back); return nil }
-                front = ""; back = ""
-            }.disabled(front.isEmpty || back.isEmpty)
-            let uncarded = questions.filter { !carded.contains($0.id) }
-            if !uncarded.isEmpty {
-                SectionHeader(title: "Practice questions — add to deck")
-                ForEach(uncarded.prefix(30)) { q in
-                    HStack {
-                        Text(q.prompt).font(.stBody).lineLimit(2)
-                        Spacer()
-                        Chip(text: q.kind)
-                        Button("Add to deck") { model.run("Added to deck.") { _ = try model.store.cardFromQuestion(q); return nil } }.buttonStyle(.borderless).font(.stSmall)
-                    }
-                }
-            }
-            if !active.isEmpty {
-                SectionHeader(title: "Deck")
-                ForEach(active.prefix(100)) { c in
-                    HStack {
-                        Text(c.front).font(.stBody).lineLimit(1)
-                        Spacer()
-                        Text(CardState(rawValue: c.state)?.label ?? "").font(.stSmall).foregroundStyle(Theme.textTertiary)
-                        Text(c.due <= Date() ? "due" : RelativeTime.describe(c.due)).font(.stSmall).monospacedDigit().foregroundStyle(Theme.textSecondary)
-                        Button("Suspend") { model.run { try model.store.saveCard(id: c.id, front: c.front, back: c.back, status: "suspended"); return nil } }
-                            .buttonStyle(.borderless).font(.stSmall)
-                    }
-                }
-            }
-            if !suspended.isEmpty {
-                SectionHeader(title: "Suspended")
-                ForEach(suspended) { c in
-                    HStack { Text(c.front).font(.stBody).lineLimit(1).foregroundStyle(Theme.textSecondary); Spacer()
-                        Button("Restore") { model.run { try model.store.saveCard(id: c.id, front: c.front, back: c.back, status: "active"); return nil } }.buttonStyle(.borderless).font(.stSmall) }
-                }
-            }
-        }
-    }
-}
-
-struct ProposedCardRow: View {
-    @Environment(AppModel.self) var model
-    var card: Card
-    @State private var front = ""
-    @State private var back = ""
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField("Front", text: $front, axis: .vertical).textFieldStyle(.roundedBorder)
-            TextField("Back", text: $back, axis: .vertical).textFieldStyle(.roundedBorder)
-            HStack {
-                if let l = card.sourceLocators { Text(l).font(.stSmall).foregroundStyle(Theme.textTertiary) }
-                Spacer()
-                Button("Discard") { model.run("Discarded card.") { try model.store.trashCard(card.id) } }.buttonStyle(QuietButtonStyle())
-                Button(front != card.front || back != card.back ? "Save my version" : "Approve") {
-                    model.run { try model.store.saveCard(id: card.id, front: front, back: back, status: "active"); return nil }
-                }.buttonStyle(PrimaryButtonStyle())
-            }
-        }
-        .padding(10).background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(Theme.fillSubtle))
-        .onAppear { front = card.front; back = card.back }
-    }
-}
 
 // MARK: Editors
 
@@ -522,7 +218,7 @@ struct CourseEditor: View {
                     Button("Delete course", role: .destructive) {
                         let name = course.name
                         model.run("Deleted \(name).") { try model.store.trashCourse(course.id) }
-                        model.go(.today, replace: true)
+                        model.go(.home, replace: true)
                         dismiss()
                     }
                 }

@@ -51,10 +51,9 @@ public extension StudyStore {
     func inboxCount() -> Int {
         let files = (try? db.scalarInt("SELECT count(*) FROM materials WHERE status IN ('inbox','failed','needs_ocr') AND course_id IS NULL")) ?? 0
         let failed = (try? db.scalarInt("SELECT count(*) FROM materials WHERE status IN ('failed','needs_ocr') AND course_id IS NOT NULL")) ?? 0
-        let ready = unprocessedMaterials().filter { $0.role == .lecture || $0.role == .reading }.count
         let proposed = (try? db.scalarInt("SELECT count(*) FROM assignments WHERE confirmed = 0 AND dismissed = 0")) ?? 0
         let blocks = (try? db.scalarInt("SELECT count(*) FROM study_blocks WHERE status = 'proposed' AND created_by = 'claude'")) ?? 0
-        return files + failed + ready + proposed + blocks + conflicts().count + proposedCardCount()
+        return files + failed + proposed + blocks + conflicts().count + proposedCardCount()
     }
 
     func processedWithoutRecall(now: Date = Date()) -> [Material] {

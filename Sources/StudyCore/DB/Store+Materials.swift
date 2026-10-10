@@ -50,11 +50,12 @@ public extension StudyStore {
 
     static func sha256(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
-    /// Hash → dedupe → parse → file under Library → insert rows in one transaction. Never throws: failures become a
-    /// `failed` material with a readable reason so the queue keeps moving.
+    /// Hash → dedupe → parse → sort → file under Library → insert rows in one transaction, then file it under its course
+    /// when that's clear. Never throws: failures become a `failed` material with a readable reason so the queue keeps
+    /// moving. A `role` passed in is the student's choice; otherwise the sorting rules decide.
     @discardableResult
     func importMaterial(from url: URL, courseId: Int? = nil, role: MaterialRole? = nil, externalUid: String? = nil,
-                        removeOriginal: Bool = false, ocr: Bool = true) -> ImportOutcome {
+                        hints: ImportHints = .none, removeOriginal: Bool = false, ocr: Bool = true) -> ImportOutcome {
         guard let data = try? Data(contentsOf: url) else { return .failed(message: "Could not read \(url.lastPathComponent).") }
         let hash = Self.sha256(data)
         if let dup = try? db.first("SELECT id, title FROM materials WHERE content_hash = ?", [hash]) {
@@ -88,10 +89,12 @@ public extension StudyStore {
         do { try data.write(to: dest) } catch { return .failed(message: "Could not file \(filename): \(error.localizedDescription)") }
         if removeOriginal { try? FileManager.default.removeItem(at: url) }
 
-        let firstText = parsed?.chunks.prefix(2).map { $0.textMd }.joined(separator: " ") ?? ""
-        let suggested = courseId == nil ? CourseMatcher.best(filename + " " + (parsed?.title ?? "") + " " + String(firstText.prefix(600)), courses: courses)?.id : nil
-        let guessedRole = role ?? Self.guessRole(filename: filename, title: parsed?.title ?? "", text: firstText)
+        let firstText = parsed?.chunks.prefix(3).map { [$0.heading, $0.textMd].compactMap { $0 }.joined(separator: "\n") }
+            .joined(separator: "\n") ?? ""
         let kind = parsed?.kind ?? Self.kind(forExtension: url.pathExtension)
+        let sort = FileSorter.sort(.init(filename: filename, title: parsed?.title ?? "", text: firstText,
+                                         sectionName: hints.sectionName, moduleName: hints.moduleName, kind: kind))
+        let suggested = courseId == nil ? suggestCourse(for: [filename, hints.moduleName, parsed?.title, String(firstText.prefix(600))], courses: courses) : nil
         let status: String
         if parsed == nil { status = "failed" }
         else if parsed!.status == "needs_ocr" { status = "needs_ocr" }
@@ -102,10 +105,13 @@ public extension StudyStore {
         do {
             let id: Int = try db.transaction {
                 let id = try db.execute("""
-                    INSERT INTO materials(course_id, suggested_course_id, title, kind, role, original_filename, stored_path, assets_path,
-                      content_hash, status, status_detail, page_count, external_uid)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-                    """, [courseId, suggested, parsed?.title ?? url.deletingPathExtension().lastPathComponent, kind, guessedRole.rawValue,
+                    INSERT INTO materials(course_id, suggested_course_id, title, kind, role, role_source, role_confidence, sort_reason,
+                      section_name, module_name, original_filename, stored_path, assets_path, content_hash, status, status_detail,
+                      page_count, external_uid)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """, [courseId, suggested, parsed?.title ?? url.deletingPathExtension().lastPathComponent, kind,
+                          (role ?? sort.role).rawValue, role != nil ? "user" : sort.source, role != nil ? nil : sort.confidence,
+                          role != nil ? nil : sort.reason, hints.sectionName?.nilIfEmpty, hints.moduleName?.nilIfEmpty,
                           filename, paths.relative(dest), hasAssets ? paths.relative(assetsDir) : nil, hash, status,
                           failure ?? parsed?.statusDetail, parsed?.pageCount, externalUid]).lastInsertId
                 for (i, c) in (parsed?.chunks ?? []).enumerated() {
@@ -118,6 +124,13 @@ public extension StudyStore {
                 audit("import_material", entity: "material", id: id, detail: filename)
                 return id
             }
+            // The course is clear (its code or name, or the only course this term): file it without asking.
+            if courseId == nil, let suggested { try? confirmMaterial(id, courseId: suggested) }
+            refreshTaughtDate(id)
+            pairSolutions(id)
+            splitPractice(materialId: id)
+            // Filed straight into its course (a Moodle sync, a drop on the course): confirmMaterial didn't run.
+            if courseId != nil { fileJoinedPath(id) }
             if let failure { return .failed(message: "\(filename): \(failure)") }
             return .imported(id: id, title: parsed?.title ?? filename)
         } catch {
@@ -133,18 +146,6 @@ public extension StudyStore {
         case "png", "jpg", "jpeg", "heic", "tiff": return "image"
         default: return "text"
         }
-    }
-
-    static func guessRole(filename: String, title: String, text: String) -> MaterialRole {
-        let s = (filename + " " + title).lowercased()
-        let t = text.prefix(1500).lowercased()
-        if s.contains("syllabus") || s.contains("course outline") || s.contains("module guide") || s.contains("course guide") || s.contains("handbook") { return .syllabus }
-        if s.contains("rubric") || s.contains("marking") || s.contains("criteria") || s.contains("grading") { return .rubric }
-        if s.contains("past paper") || s.contains("past exam") || s.contains("mock exam") || s.contains("sample exam") || s.contains("exam 20") || s.contains("resit") { return .pastExam }
-        if s.contains("brief") || s.contains("assignment") || s.contains("assessment") || s.contains("coursework") { return .brief }
-        if s.contains("reading") || s.contains("chapter") || s.contains("article") || s.contains("case study") { return .reading }
-        if t.contains("learning outcomes") && t.contains("assessment") && (t.contains("weight") || t.contains("%")) { return .syllabus }
-        return .lecture
     }
 
     func libraryFolder(term: Term?, course: Course?) -> URL {
@@ -174,16 +175,46 @@ public extension StudyStore {
                (try? fm.moveItem(at: src, to: dst)) != nil { assets = paths.relative(dst) }
         }
         let status = (m.status == "inbox") ? "ready" : m.status
+        let movedFrom = m.courseId.flatMap { $0 == courseId ? nil : $0 }
         try db.execute("""
             UPDATE materials SET course_id = ?, status = ?, stored_path = ?, assets_path = ?, role = COALESCE(?, role),
+              role_source = CASE WHEN ? IS NOT NULL AND ? != role THEN 'user' ELSE role_source END,
               updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?
-            """, [courseId, status, stored, assets, role?.rawValue, id])
+            """, [courseId, status, stored, assets, role?.rawValue, role?.rawValue, role?.rawValue, id])
+        try db.execute("UPDATE practice_items SET course_id = ? WHERE material_id = ?", [courseId, id])
+        if let movedFrom {
+            // Its problems, cards and slides pointed at the old course's topics: they're linked again to this one's.
+            try db.execute("UPDATE practice_items SET topic_id = NULL WHERE material_id = ?", [id])
+            try db.execute("UPDATE cards SET course_id = ?, topic_id = NULL WHERE material_id = ?", [courseId, id])
+            try db.execute("DELETE FROM topic_coverage WHERE material_id = ?", [id])
+            markPathStale(courseId: movedFrom)
+        }
         audit("confirm_material", entity: "material", id: id)
+        refreshTaughtDate(id)
+        pairSolutions(id)
+        splitPractice(materialId: id)
+        fileJoinedPath(id)
+        if movedFrom != nil { linkPracticeAndCards(courseId: courseId) }
     }
 
+    /// A lecture, reading, class example, syllabus or past exam reshapes its course's path: the path is rebuilt once
+    /// the files settle, and meanwhile the file is linked to the topics it teaches.
+    func fileJoinedPath(_ id: Int) {
+        guard let m = material(id), let courseId = m.courseId, !m.excluded,
+              [.lecture, .reading, .example, .syllabus, .pastExam].contains(m.role) else { return }
+        markPathStale(courseId: courseId)
+        linkCoverageByWords(materialId: id)
+    }
+
+    /// A role the student picked. It is never changed by anything automatic afterwards.
     func updateMaterial(_ id: Int, title: String? = nil, role: MaterialRole? = nil) throws {
         if let title { try db.execute("UPDATE materials SET title = ? WHERE id = ?", [title, id]) }
-        if let role { try db.execute("UPDATE materials SET role = ? WHERE id = ?", [role.rawValue, id]) }
+        if let role {
+            try db.execute("""
+                UPDATE materials SET role = ?, role_source = 'user', role_confidence = NULL, sort_reason = NULL,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?
+                """, [role.rawValue, id])
+        }
     }
 
     func deleteMaterial(_ id: Int, removeFiles: Bool = true) throws {
@@ -192,9 +223,6 @@ public extension StudyStore {
             try db.execute("DELETE FROM materials WHERE id = ?", [id])
             audit("delete_material", entity: "material", id: id, detail: m.title)
         }
-        // SQLite can reuse the id, so a stale skip must not hide the next import.
-        let skipped = skippedMaterialIds()
-        if skipped.contains(id) { setSkippedMaterialIds(skipped.subtracting([id])) }
         if removeFiles {
             if let sp = m.storedPath { try? FileManager.default.trashItem(at: paths.absolute(sp), resultingItemURL: nil) }
             if let ap = m.assetsPath { try? FileManager.default.removeItem(at: paths.absolute(ap)) }
@@ -205,25 +233,30 @@ public extension StudyStore {
         try db.execute("UPDATE materials SET processed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?", [id])
     }
 
-    // MARK: Inbox skips
+    // MARK: Not used
 
-    /// Filed materials waiting to be processed, minus any the student skipped.
+    /// Filed materials waiting to be processed, minus any set aside.
     func unprocessedMaterials() -> [Material] {
-        let skipped = skippedMaterialIds()
-        return materials(statuses: ["ready"], processed: false).filter { !skipped.contains($0.id) }
+        materials(statuses: ["ready"], processed: false).filter { !$0.excluded }
     }
 
-    /// Takes a filed material out of the Inbox without processing it (which would skew Insights and prompt a recall)
-    /// or deleting it. It stays in its course and in Study, where it can still be processed.
+    /// Sets a file aside ("Not used"): it stays in its course, kept for reference, and is never used. This is the
+    /// student's choice, so nothing automatic undoes it.
     func skipMaterial(_ id: Int) {
-        setSkippedMaterialIds(skippedMaterialIds().union([id]))
-        audit("skip_material", entity: "material", id: id)
+        setExcluded(id, true)
     }
 
-    func skippedMaterialIds() -> Set<Int> { Set(JSON.intArray(setting("inbox_skipped_materials"))) }
+    func setExcluded(_ id: Int, _ excluded: Bool) {
+        _ = try? db.execute("""
+            UPDATE materials SET excluded = ?, role_source = 'user',
+              read_state = CASE WHEN ? = 1 THEN 'skipped' WHEN read_state = 'skipped' THEN 'pending' ELSE read_state END,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?
+            """, [excluded, excluded, id])
+        audit(excluded ? "exclude_material" : "include_material", entity: "material", id: id)
+    }
 
-    func setSkippedMaterialIds(_ ids: Set<Int>) {
-        setSetting("inbox_skipped_materials", ids.isEmpty ? nil : JSON.string(ids.sorted()))
+    func skippedMaterialIds() -> Set<Int> {
+        Set(((try? db.query("SELECT id FROM materials WHERE excluded = 1")) ?? []).map { $0.i("id") })
     }
 
     /// Adds on-device OCR of pictures inside slides and documents, so text in screenshots and diagrams reaches Claude.
@@ -253,52 +286,5 @@ public extension StudyStore {
             WHERE m.kind IN ('slides','doc') AND c.images IS NOT NULL AND (c.extra_md IS NULL OR c.extra_md NOT LIKE '%Text in pictures:%')
             """)) ?? []
         return rows.map { $0.i("id") }
-    }
-
-    // MARK: Handwriting capture (photo of the student's own sheet)
-
-    func handwritingCaptures(materialId: Int? = nil) -> [HandwritingCapture] {
-        let rows = materialId.map { (try? db.query("SELECT * FROM handwriting_captures WHERE material_id = ? ORDER BY id DESC", [$0])) ?? [] }
-            ?? ((try? db.query("SELECT * FROM handwriting_captures ORDER BY id DESC LIMIT 50")) ?? [])
-        return rows.map(HandwritingCapture.init)
-    }
-
-    /// Copies the photo, reads the handwriting on device, and runs a quick local coverage check against the lecture's concepts.
-    @discardableResult
-    func addHandwritingCapture(materialId: Int, imageURL: URL) throws -> HandwritingCapture {
-        guard let img = Imaging.loadImage(imageURL, maxPixel: 3000) else { throw StoreError.invalid("That image could not be opened.") }
-        let text = Imaging.recognizeText(img)
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyyMMdd-HHmmss"
-        let dest = paths.captures.appendingPathComponent("m\(materialId)-\(f.string(from: Date())).jpg")
-        try FileManager.default.createDirectory(at: paths.captures, withIntermediateDirectories: true)
-        if let small = Imaging.loadImage(imageURL, maxPixel: 2400), let jpeg = Imaging.jpegData(small) { try jpeg.write(to: dest) }
-        let coverage = Self.coverage(text: text, concepts: concepts(materialId: materialId))
-        let id = try db.execute("INSERT INTO handwriting_captures(material_id, image_path, ocr_text, coverage_json) VALUES(?,?,?,?)",
-                                [materialId, paths.relative(dest), text, JSON.string(coverage)]).lastInsertId
-        let courseId = material(materialId)?.courseId
-        try db.execute("""
-            INSERT INTO study_sessions(course_id, material_id, kind, started_at, ended_at, summary, items_total, items_correct, created_by)
-            VALUES(?,?,'handwriting',?,?,?,?,?,'user')
-            """, [courseId, materialId, ISO.instant(Date()), ISO.instant(Date()),
-                  "Handwritten sheet captured. Local check covered \((coverage["covered"] as? [String])?.count ?? 0) of \(coverage["total"] as? Int ?? 0) concepts.",
-                  coverage["total"] as? Int, (coverage["covered"] as? [String])?.count])
-        audit("handwriting_capture", entity: "material", id: materialId)
-        return HandwritingCapture(row: try db.first("SELECT * FROM handwriting_captures WHERE id = ?", [id])!)
-    }
-
-    /// Deterministic keyword coverage: a concept counts as mentioned when most of its significant name words appear.
-    static func coverage(text: String, concepts: [Concept]) -> [String: Any] {
-        let norm = " " + CourseMatcher.normalize(text).replacingOccurrences(of: #"[^a-z0-9 ]"#, with: " ", options: .regularExpression) + " "
-        var covered: [String] = [], missing: [String] = []
-        for c in concepts {
-            let words = CourseMatcher.normalize(c.name).replacingOccurrences(of: #"[^a-z0-9 ]"#, with: " ", options: .regularExpression)
-                .split(separator: " ").map(String.init).filter { $0.count >= 3 && !["the", "and", "for", "with", "of"].contains($0) }
-            if words.isEmpty { continue }
-            let hits = words.filter { w in norm.contains(" " + String(w.prefix(max(4, w.count - 2)))) }.count
-            if Double(hits) / Double(words.count) >= 0.6 { covered.append(c.name) } else { missing.append(c.name) }
-        }
-        let total = covered.count + missing.count
-        return ["covered": covered, "missing": missing, "total": total,
-                "coverage_pct": total == 0 ? 0 : Int((Double(covered.count) / Double(total) * 100).rounded())]
     }
 }

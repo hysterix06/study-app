@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WebKit
 import StudyCore
 
 /// Development aid: `-snapshotDir /path -snapshotRoutes today,calendar/month,course/*/concepts` renders the main
@@ -19,9 +20,12 @@ enum DebugSnapshots {
                 switch entry {
                 case "palette": model.showPalette = true
                 case "review": model.startReview()
+                case "needs-a-look": model.go(.needsLook)
                 case "assignments/board":
                     UserDefaults.standard.set(true, forKey: "assignments.board")
                     model.go(.assignments)
+                case let e where e.hasPrefix("session/"):
+                    openSession(e, model: model)
                 default:
                     if let r = Route(path: resolve(entry, model: model)) { model.go(r) }
                 }
@@ -31,14 +35,61 @@ enum DebugSnapshots {
                     guard let view = w.contentView?.superview ?? w.contentView,
                           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
                     view.cacheDisplay(in: view.bounds, to: rep)
+                    await drawWebViews(in: view, onto: rep)
                     let file = URL(fileURLWithPath: dir).appendingPathComponent("\(name)\(i == 0 ? "" : "-\(i)").png")
                     try? rep.representation(using: .png, properties: [:])?.write(to: file)
                 }
-                model.review = nil
                 model.showPalette = false
+                model.session = nil
             }
             NSApp.terminate(nil)
         }
+    }
+
+    /// Web views draw in another process, so the window capture shows them blank: each one is asked for its own
+    /// picture, which is drawn into the capture where it sits.
+    private static func drawWebViews(in root: NSView, onto rep: NSBitmapImageRep) async {
+        var webs: [WKWebView] = []
+        func collect(_ v: NSView) { if let w = v as? WKWebView { webs.append(w) } else { v.subviews.forEach(collect) } }
+        collect(root)
+        guard !webs.isEmpty, let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+        for web in webs where !web.isHiddenOrHasHiddenAncestor {
+            let visible = web.visibleRect
+            guard visible.width > 1, visible.height > 1 else { continue }
+            let config = WKSnapshotConfiguration()
+            config.rect = visible
+            guard let image = try? await web.takeSnapshot(configuration: config) else { continue }
+            var frame = web.convert(visible, to: root)
+            if !root.isFlipped { /* already bottom-left */ } else { frame.origin.y = root.bounds.height - frame.maxY }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = ctx
+            image.draw(in: frame)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    /// `session/topic@practice`: opens a session of that kind on the course with the most topics, at that step.
+    private static func openSession(_ entry: String, model: AppModel) {
+        let store = model.store
+        let parts = entry.dropFirst("session/".count).split(separator: "@").map(String.init)
+        guard let course = store.courses().max(by: { store.topics(courseId: $0.id).count < store.topics(courseId: $1.id).count }) else { return }
+        let topics = store.topics(courseId: course.id)
+        let pick: SessionPick
+        switch parts.first ?? "" {
+        case "notebook": pick = SessionPick(kind: .notebook, courseId: course.id, topicIds: topics.filter { !$0.inNotebook }.map(\.id), minutes: 25, score: 1)
+        case "review": pick = SessionPick(kind: .review, courseId: nil, minutes: 25, score: 1)
+        case "exam":
+            let exam = store.assignments(AssignmentFilter(courseId: course.id)).first { $0.kind == .exam }
+            pick = SessionPick(kind: .examPrep, courseId: course.id, assignmentId: exam?.id,
+                               topicIds: exam.map { store.assessmentTopicIds(assignmentId: $0.id) } ?? topics.map(\.id), minutes: 25, score: 1)
+        default:
+            let t = topics.first { store.lesson(topicId: $0.id) != nil && !store.practiceItems(topicId: $0.id).isEmpty } ?? topics.first
+            pick = SessionPick(kind: .topic, courseId: course.id, topicId: t?.id, minutes: 25, score: 1)
+        }
+        model.startSession(pick)
+        guard let target = parts.dropFirst().first.flatMap(SessionStep.init), let c = model.session else { return }
+        if target == .done { c.finish(); return }
+        for _ in 0..<8 where c.step != target && c.step != .done { c.next() }
     }
 
     /// Replaces `*` with a sample id for the object kind in front of it.
@@ -47,7 +98,9 @@ enum DebugSnapshots {
         let store = model.store
         let id: Int?
         if entry.hasPrefix("course/") {
-            id = store.courses().max { store.concepts(courseId: $0.id).count < store.concepts(courseId: $1.id).count }?.id
+            id = store.courses().max { store.topics(courseId: $0.id).count < store.topics(courseId: $1.id).count }?.id
+        } else if entry.hasPrefix("topic/") {
+            id = store.courses().flatMap { store.topics(courseId: $0.id) }.first { store.lesson(topicId: $0.id) != nil }?.id
         } else if entry.hasPrefix("assignment/") {
             id = store.assignments().first?.id
         } else if entry.hasPrefix("material/") {

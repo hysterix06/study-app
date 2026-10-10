@@ -2,69 +2,6 @@ import SwiftUI
 import StudyCore
 import StudyAI
 
-/// The one button for an AI task. The label never changes; a small glyph after it shows where the task runs
-/// (background, chat here, the student's AI app, or copy-and-paste), and the tooltip names the engine.
-struct AIButton: View {
-    @Environment(AppModel.self) var model
-    var task: AITask
-    var action: () -> Void
-
-    var body: some View {
-        let _ = model.revision
-        let mode = model.jobs.mode(for: task)
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Text(task.label)
-                Image(systemName: Self.glyph(mode))
-                    .font(.system(size: 10, weight: .semibold)).opacity(0.55)
-                    .accessibilityHidden(true)
-            }
-        }
-        .help(model.jobs.describe(task))
-    }
-
-    static func glyph(_ mode: JobMode) -> String {
-        switch mode {
-        case .automatic: return "gearshape.2"
-        case .chat: return "bubble.left.and.bubble.right"
-        case .desktop: return "arrow.up.forward.app"
-        case .paste: return "doc.on.clipboard"
-        }
-    }
-}
-
-/// Toolbar button: a spinner while a job runs, a badge when a job is waiting on the student.
-struct ActivityToolbarButton: View {
-    @Environment(AppModel.self) var model
-
-    var body: some View {
-        @Bindable var model = model
-        let _ = model.revision
-        let waiting = model.store.jobsNeedingAttention().count
-        Button { model.go(.activity(jobId: nil)) } label: {
-            ZStack(alignment: .topTrailing) {
-                if model.jobs.isRunning {
-                    ProgressView().controlSize(.small).frame(width: 18, height: 18)
-                } else {
-                    Image(systemName: "sparkles")
-                }
-                if waiting > 0 {
-                    Text("\(waiting)").font(.system(size: 9, weight: .bold)).monospacedDigit()
-                        .foregroundStyle(.white).padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Capsule().fill(Theme.attention)).offset(x: 8, y: -6)
-                }
-            }
-        }
-        .help(model.jobs.progressText ?? "AI activity")
-        .accessibilityLabel(waiting > 0 ? "AI activity, \(waiting) waiting on you" : "AI activity")
-        .popover(isPresented: $model.showActivity, arrowEdge: .bottom) {
-            ActivityList(limit: 12, highlight: model.activityJobId)
-                .padding(14).frame(width: 440)
-                .themed()
-        }
-    }
-}
-
 /// AI jobs, newest first: what was done, is running, or is waiting on the student.
 struct ActivityList: View {
     @Environment(AppModel.self) var model
@@ -79,7 +16,7 @@ struct ActivityList: View {
                 Text("AI activity").font(.stBodyStrong)
                 Spacer()
                 if limit < 50 {
-                    Button("Full history") { model.showActivity = false; model.go(.connections(.ai)) }
+                    Button("Full history") { model.go(.settings(.ai)) }
                         .buttonStyle(.borderless).font(.stSmall)
                 }
             }
@@ -121,17 +58,17 @@ struct JobRow: View {
             }
             HStack(spacing: 10) {
                 if job.state == .done, let r = model.jobs.resultLink(job.id) {
-                    Button("Open result") { model.showActivity = false; model.go(r) }
+                    Button("Open result") { model.go(r) }
                 }
                 if job.mode == .desktop && job.state.isActive {
                     Button("Copy prompt again") { model.jobs.handOff(job.id) }
-                    if PastePrompts.supported.contains(job.task) { Button("Use any chatbot instead") { model.showActivity = false; model.jobs.switchToPaste(job.id) } }
+                    if PastePrompts.supported.contains(job.task) { Button("Use any chatbot instead") { model.jobs.switchToPaste(job.id) } }
                     Button("Mark done") { model.jobs.markDone(job.id) }
                 }
-                if job.mode == .chat && job.state.isActive { Button("Open chat") { model.showActivity = false; model.openChat(job: job.id) } }
-                if job.mode == .paste && job.state.isActive { Button("Paste answer") { model.showActivity = false; model.paste = PasteRequest(jobId: job.id) } }
+                if job.mode == .chat && job.state.isActive { Button("Open chat") { model.openChat(job: job.id) } }
+                if job.mode == .paste && job.state.isActive { Button("Paste answer") { model.paste = PasteRequest(jobId: job.id) } }
                 if job.state == .failed && job.mode == .automatic && PastePrompts.supported.contains(job.task) {
-                    Button("Use any chatbot instead") { model.showActivity = false; model.jobs.switchToPaste(job.id) }
+                    Button("Use any chatbot instead") { model.jobs.switchToPaste(job.id) }
                 }
                 if job.tokensIn + job.tokensOut > 0 {
                     Text("\(Self.tokens(job.tokensIn + job.tokensOut)) tokens" + (job.costUSD.map { $0 > 0 ? String(format: " · $%.3f", $0) : " · free" } ?? ""))

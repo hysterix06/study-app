@@ -264,6 +264,7 @@ public enum ICS {
     }
 }
 
-extension String {
+public extension String {
+    /// The trimmed text, or nil when there's nothing but whitespace.
     var nilIfEmpty: String? { let t = trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t }
 }

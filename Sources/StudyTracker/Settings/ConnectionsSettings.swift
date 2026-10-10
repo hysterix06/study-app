@@ -42,10 +42,10 @@ extension AppModel {
         case .ai:
             let stale = Connectors.all.filter { if case .stale = ai.state($0) { return true }; return false }
             if let s = stale.first { return .needsAttention("Reconnect \(s.name)") }
-            if let chosen = ai.settings.defaultEngine, !ai.engineOptions().contains(where: { $0.ref.providerId == chosen.providerId }) {
+            if let chosen = ai.settings.everyday, !ai.engineOptions().contains(where: { $0.ref.providerId == chosen.providerId }) {
                 return .needsAttention("\(chosen.displayName) needs attention")
             }
-            let engine = ai.engine(for: .process)?.displayName
+            let engine = ai.engine(for: .sortFiles)?.displayName
             let apps = Connectors.all.filter { ai.state($0) == .connected || ai.lastUsed($0) != nil }.map(\.name)
             let parts = ([engine] + apps.prefix(2).map { Optional($0) }).compactMap { $0 }
             return parts.isEmpty ? .notConnected : .connected(parts.joined(separator: " · "))
@@ -73,7 +73,7 @@ extension ConnectionKind {
         switch self {
         case .moodle: return "Courses, deadlines, grades and files from your school."
         case .calendars: return "Your timetable, and busy time the planner works around."
-        case .ai: return "Free built-in AI, or your own AI app, turns lectures into concepts, questions and sheets."
+        case .ai: return "Free AI sorts and reads your files; the course builder lays out each course."
         case .apple: return "Classes, deadlines and study blocks on your iPhone and Watch."
         }
     }
@@ -100,71 +100,32 @@ struct StatusDot: View {
     }
 }
 
-struct ConnectionsScreen: View {
+/// Settings › Connections: Moodle, calendars and Apple Calendar, each optional.
+struct ConnectionsSettings: View {
     @Environment(AppModel.self) var model
-    var kind: ConnectionKind?
 
     var body: some View {
         let _ = model.revision
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if let kind {
-                    HStack(spacing: 10) {
-                        Image(systemName: kind.icon).font(.system(size: 22)).foregroundStyle(Theme.textSecondary)
-                        Text(kind.title).font(.stTitle)
+        VStack(alignment: .leading, spacing: 26) {
+            ForEach([ConnectionKind.moodle, .calendars, .apple]) { kind in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: kind.icon).foregroundStyle(Theme.textSecondary)
+                        Text(kind.title).font(.stHeading)
                         Spacer()
                         let status = model.connectionStatus(kind)
-                        HStack(spacing: 6) { StatusDot(status: status); Text(status.title).font(.stSmall).foregroundStyle(Theme.textSecondary) }
+                        StatusDot(status: status)
+                        Text(status.detail ?? status.title).font(.stSmall).foregroundStyle(Theme.textSecondary)
                     }
+                    Text(kind.blurb).font(.stSmall).foregroundStyle(Theme.textTertiary)
                     switch kind {
                     case .moodle: MoodleSettings()
                     case .calendars: CalendarSettings()
-                    case .ai: AISettingsView()
                     case .apple: AppleSyncSettings()
-                    }
-                } else {
-                    Text("Connections").font(.stTitle)
-                    Text("Everything Study Tracker talks to. Each one is optional, and your data stays on this Mac.")
-                        .font(.stBody).foregroundStyle(Theme.textSecondary)
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                        ForEach(ConnectionKind.allCases) { k in ConnectionCard(kind: k) }
-                    }
-                    if model.store.boolSetting("setup_checklist_hidden") {
-                        SetupChecklist(showsHide: false)
+                    case .ai: EmptyView()
                     }
                 }
             }
-            .padding(28).contentWidth()
         }
-    }
-}
-
-struct ConnectionCard: View {
-    @Environment(AppModel.self) var model
-    var kind: ConnectionKind
-
-    var body: some View {
-        let status = model.connectionStatus(kind)
-        Button { model.go(.connections(kind)) } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Image(systemName: kind.icon).font(.system(size: 18)).foregroundStyle(Theme.textSecondary)
-                    Text(kind.title).font(.stBodyStrong)
-                    Spacer()
-                    StatusDot(status: status)
-                    Text(status.title).font(.stSmall).foregroundStyle(status.needsAttention ? Theme.attention : Theme.textSecondary)
-                }
-                Text(status.detail ?? kind.blurb).font(.stSmall).foregroundStyle(Theme.textSecondary).lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(status.isConnected ? "Manage" : status.needsAttention ? "Fix" : kind.primaryAction)
-                    .font(.stSmallStrong).foregroundStyle(status.needsAttention ? Theme.attention : Theme.textPrimary)
-            }
-            .padding(16)
-            .background(RoundedRectangle(cornerRadius: Theme.radiusCard).fill(Theme.surface))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard)
-                .strokeBorder(status.needsAttention ? Theme.attention.opacity(0.4) : status.isConnected ? Theme.success.opacity(0.3) : Theme.hairline))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }

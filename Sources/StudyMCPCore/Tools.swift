@@ -60,7 +60,10 @@ enum ToolCatalog {
 
     static func all() -> [Tool] { readTools + writeTools }
 
-    static let readTools: [Tool] = [
+    static let readTools: [Tool] = fileReadTools + courseReadTools
+    static let writeTools: [Tool] = courseWriteTools + fileWriteTools
+
+    static let fileReadTools: [Tool] = [
         Tool(name: "get_overview", title: "Overview",
              description: "What's next and what's due: current time and zone, next class, today's schedule, work due in 7 days, cards due, unprocessed lectures, pending proposals and the app's one suggested action. Start here.",
              schema: Schema.object([:]), write: false) { _, store in
@@ -140,7 +143,7 @@ enum ToolCatalog {
             catch GradeError.zeroMaxScore(let id) { throw ToolError.invalid("Assignment \(id) has a max score of 0; ask the student to fix it.") }
         },
         Tool(name: "list_materials", title: "List materials",
-             description: "Course materials (lectures, readings, syllabi, rubrics, briefs, past exams) with status, chunk and concept counts, and whether they have been processed.",
+             description: "A course's files and what each is used for: lectures and readings shape the path; practice problems, class examples and past exams feed practice; syllabi, rubrics and briefs give deadlines; excluded files are set aside and never used.",
              schema: Schema.object([
                 "course_id": Schema.int("Only this course"), "processed": Schema.bool("true: processed only; false: unprocessed only"),
                 "status": Schema.enumString(["inbox", "ready", "needs_ocr", "failed"], "Filter by status"),
@@ -152,9 +155,12 @@ enum ToolCatalog {
             let list = store.materials(courseId: try a.optInt("course_id"), statuses: status.map { [$0] }, processed: processed, role: role)
             return .json(list.map { m -> [String: Any] in
                 let chunks = store.chunks(materialId: m.id)
-                return ["id": m.id, "course_id": m.courseId as Any, "title": m.title, "kind": m.kind, "role": m.role.rawValue, "status": m.status,
-                        "page_count": m.pageCount as Any, "chunk_count": chunks.count, "processed_at": tzString(m.processedAt, store),
-                        "concept_count": store.concepts(materialId: m.id).count, "chunks_with_images": chunks.filter { !$0.images.isEmpty }.count]
+                var d: [String: Any] = ["id": m.id, "course_id": m.courseId as Any, "title": m.title, "kind": m.kind, "role": m.role.rawValue,
+                                        "used_for": m.group.rawValue, "excluded": m.excluded, "status": m.status, "page_count": m.pageCount as Any,
+                                        "chunk_count": chunks.count, "chunks_with_images": chunks.filter { !$0.images.isEmpty }.count]
+                if let t = m.taughtOn { d["taught_on"] = t.string }
+                if let p = m.pairsWith { d["solutions_for"] = p }
+                return d
             })
         },
         Tool(name: "get_material", title: "Material index",
@@ -249,18 +255,28 @@ enum ToolCatalog {
                         "links": links.filter { $0.0 == k.id }.compactMap { l in names[l.1].map { ["to": $0, "relation": l.2] } }]
             })
         },
-        Tool(name: "get_questions", title: "Questions",
-             description: "Practice questions with answer keys, source locators and difficulty. card_id is set when the question has a flashcard.",
-             schema: Schema.object(["material_id": Schema.int("Material id"), "concept_id": Schema.int("Concept id"), "course_id": Schema.int("Course id"),
-                                    "kind": Schema.enumString(["recall", "explain", "apply", "compare", "calculate"], "Kind")]), write: false) { a, store in
-            let qs = store.questions(materialId: try a.optInt("material_id"), conceptId: try a.optInt("concept_id"),
-                                     courseId: try a.optInt("course_id"), kind: try a.oneOf("kind", ["recall", "explain", "apply", "compare", "calculate"]))
-            let conceptNames = Dictionary(uniqueKeysWithValues: store.concepts().map { ($0.id, $0.name) })
-            let cardsByQ = Dictionary(store.cards(status: "active").compactMap { c in c.questionId.map { ($0, c.id) } }, uniquingKeysWith: { a, _ in a })
-            return .json(qs.map { q -> [String: Any] in
-                ["id": q.id, "material_id": q.materialId, "kind": q.kind, "prompt": q.prompt, "answer_key": q.answerKey,
-                 "concept": q.conceptId.flatMap { conceptNames[$0] } as Any, "source_locators": store.chunks(ids: q.sourceChunkIds).map(\.locator),
-                 "difficulty": q.difficulty, "card_id": cardsByQ[q.id] as Any]
+        Tool(name: "get_practice", title: "Practice problems",
+             description: """
+             Problems in a course's practice bank: from its problem sets, class examples and past exams (word for word, with \
+             solutions when the course gave them) and ones written for a topic. Filter by course, file or topic.
+             """,
+             schema: Schema.object(["course_id": Schema.int("Course id"), "material_id": Schema.int("A practice, example or exam file"),
+                                    "topic_id": Schema.int("Path topic id"), "unlabelled": Schema.bool("Only problems not labelled yet")]), write: false) { a, store in
+            let cid = try a.optInt("course_id"), mid = try a.optInt("material_id"), tid = try a.optInt("topic_id")
+            guard cid != nil || mid != nil || tid != nil else { throw ToolError.invalid("Provide course_id, material_id or topic_id.") }
+            var items = store.practiceItems(courseId: cid, materialId: mid, topicId: tid)
+            if try a.bool("unlabelled", default: false) { items = items.filter(\.isUnlabelled) }
+            return .json(items.prefix(150).map { i -> [String: Any] in
+                var d: [String: Any] = ["id": i.id, "kind": i.kind, "difficulty": i.difficulty, "prompt_md": String(i.promptMd.prefix(1500)),
+                                        "source": i.source, "exam_style": i.examStyle, "has_solution": i.solutionMd != nil]
+                if let n = i.number { d["number"] = n }
+                if let l = i.locator { d["locator"] = l }
+                if let m = i.materialId { d["material_id"] = m }
+                if let m = i.marks { d["marks"] = m }
+                if let t = i.topicLabel { d["topic"] = t }
+                if let t = i.topicId { d["topic_id"] = t }
+                if let s = i.solutionMd, mid != nil { d["solution_md"] = String(s.prefix(1500)) }
+                return d
             })
         },
         Tool(name: "get_review_queue", title: "Review queue",
@@ -282,13 +298,6 @@ enum ToolCatalog {
                  "material_id": $0.materialId as Any, "updated_at": tzString($0.updatedAt, store)]
             })
         },
-        Tool(name: "get_handwriting_captures", title: "Handwritten sheets",
-             description: "Photos of the student's handwritten notes for a material: text recognized on their Mac and a quick local check of which concepts appear.",
-             schema: Schema.object(["material_id": Schema.int("Material id")], required: ["material_id"]), write: false) { a, store in
-            .json(store.handwritingCaptures(materialId: try a.int("material_id")).map {
-                ["id": $0.id, "created_at": tzString($0.createdAt, store), "recognized_text": $0.ocrText, "local_check": JSON.parse($0.coverageJson) as Any]
-            })
-        },
         Tool(name: "get_outcomes", title: "Outcomes",
              description: "Whether studying is working: missed deadlines, on-time rate, 30-day card retention, recall within 48 hours of processing, study minutes per week, grades versus targets, and concepts flagged weak most often.",
              schema: Schema.object([:]), write: false) { _, store in
@@ -302,109 +311,102 @@ enum ToolCatalog {
              schema: Schema.object([
                 // Not "job_id": the server strips that key from every call to tag writes with their job.
                 "job": Schema.int("The job number the student gave you"),
-                "task": Schema.enumString(AITask.allCases.map(\.rawValue), "Task, when there is no job number"),
-                "material_id": Schema.int("For lecture tasks"), "assignment_id": Schema.int("For check_draft"), "concept_id": Schema.int("For explain"),
+                "task": Schema.enumString(AITask.current.filter { $0.prompt != nil }.map(\.rawValue), "Task, when there is no job number"),
+                "material_id": Schema.int("For extract_deadlines"), "assignment_id": Schema.int("For check_draft"),
+                "course_id": Schema.int("For build_course_path, write_notebook and write_lessons"),
+                "topic_ids": Schema.string("For write_notebook and write_lessons: comma-separated topic ids (optional)", max: 400),
              ]), write: false) { a, store in
             var args: [String: String] = [:]
             let task: AITask
             if let jid = try a.optInt("job") {
                 guard let job = store.job(jid) else { throw ToolError.notFound("Job \(jid) does not exist.", hint: "Ask the student to copy the job again from Study Tracker.") }
                 guard job.state.isActive else { throw ToolError("CONFLICT", "Job \(jid) is already \(job.state.title.lowercased()).", hint: "Ask the student to start it again.") }
+                guard !job.task.isRetired else { throw ToolError("CONFLICT", "Job \(jid) is a kind of task this version no longer runs.", hint: "Ask the student to update Study Tracker.") }
                 task = job.task
                 args = job.args
                 args["job_id"] = "\(jid)"
             } else {
-                guard let raw = try a.optString("task", max: 40), let t = AITask(rawValue: raw) else {
+                guard let raw = try a.optString("task", max: 40), let t = AITask(rawValue: raw), !t.isRetired else {
                     throw ToolError.invalid("Pass job, or task with its arguments.")
                 }
                 task = t
-                for k in ["material_id", "assignment_id", "concept_id"] { if let v = try a.optInt(k) { args[k] = "\(v)" } }
-                if t == .quiz, let m = args["material_id"] { args = ["scope": "material", "id": m] }
+                for k in ["material_id", "assignment_id", "course_id"] { if let v = try a.optInt(k) { args[k] = "\(v)" } }
+                if let t = try a.optString("topic_ids", max: 400) { args["topic_ids"] = t }
+            }
+            guard let prompt = task.prompt else {
+                throw ToolError("CONFLICT", "\(task.label) runs inside the Study Tracker app, not in an AI app.")
             }
             let text: String
-            do { text = try Prompts.render(task.prompt, args: args, store: store) } catch {
+            do { text = try Prompts.render(prompt, args: args, store: store) } catch {
                 throw ToolError.invalid("\(error)")
             }
             return .json(["task": task.rawValue, "title": task.label, "instructions": text])
         },
     ]
 
-    static let writeTools: [Tool] = [
-        Tool(name: "save_concepts", title: "Save concepts",
+    static let fileWriteTools: [Tool] = [
+        Tool(name: "set_material_use", title: "Sort a file",
              description: """
-             Save concepts for a material (max 30 per call). Concepts are shared across the course: reuse an existing name to add this lecture as a source. \
-             Every concept needs source_chunk_ids from this material. Never overwrites concepts the student wrote.
+             Say what a course file is: lecture, reading, practice (problem sets, tutorials, exercises, solutions), example (class \
+             examples), syllabus, rubric, brief, past_exam, or other (doesn't belong: admin, unreadable or unrelated). Never \
+             changes a file the student sorted. Below 0.6 confidence the student is asked to check.
              """,
              schema: Schema.object([
                 "material_id": Schema.int("Material id"),
-                "concepts": Schema.array(Schema.object([
-                    "name": Schema.string("Concept name", max: 80),
-                    "definition": Schema.string("One plain-language sentence", max: 400),
-                    "importance": Schema.int("1 core, 2 supporting, 3 detail", min: 1, max: 3),
-                    "source_chunk_ids": Schema.intArray("Chunk ids from this material", min: 1),
-                    "links": Schema.array(Schema.object(["to_name": Schema.string("Other concept name"),
-                                                         "relation": Schema.enumString(["part_of", "causes", "contrasts", "example_of", "prerequisite"], "Relation")],
-                                                        required: ["to_name", "relation"]), "Links to other concepts in the course"),
-                ], required: ["name", "definition", "importance", "source_chunk_ids"]), "Concepts", max: 30, min: 1),
-             ], required: ["material_id", "concepts"]), write: true) { a, store in
-            let items = try a.objects("concepts", max: 30).map { c in
-                StudyStore.ConceptInput(name: try c.string("name", max: 80), definition: try c.string("definition", max: 400),
-                                        importance: try c.int("importance"), sourceChunkIds: try c.intArray("source_chunk_ids"),
-                                        links: try c.objects("links", max: 20, required: false).map { (try $0.string("to_name", max: 80), try $0.string("relation", max: 20)) })
+                "role": Schema.enumString(MaterialRole.allCases.map(\.rawValue), "What the file is"),
+                "confidence": Schema.number("How sure, 0-1"),
+                "reason": Schema.string("One short sentence the student sees, e.g. \"Numbered exercises with solutions.\"", max: 200),
+             ], required: ["material_id", "role", "confidence", "reason"]), write: true) { a, store in
+            let id = try a.int("material_id")
+            guard let m = store.material(id) else { throw ToolError.notFound("Material \(id) does not exist.") }
+            guard let role = try a.oneOf("role", MaterialRole.allCases.map(\.rawValue)).flatMap(MaterialRole.init) else {
+                throw ToolError.invalid("role is required.")
             }
-            return writeJSON(try store.saveConcepts(materialId: try a.int("material_id"), items))
+            guard m.roleSource != "user" else { return .json(["material_id": id, "changed": false, "why": "The student already sorted this file."]) }
+            let confidence = min(1, max(0, try a.optDouble("confidence") ?? 0.5))
+            try store.applySort(id, role: role, confidence: confidence, reason: try a.string("reason", max: 200), source: "ai")
+            return .json(["material_id": id, "role": role.rawValue, "changed": true, "student_will_check": confidence < FileSorter.sureEnough])
         },
-        Tool(name: "save_questions", title: "Save questions",
-             description: "Save practice questions with answer keys for a material (max 40 per call). Each needs source_chunk_ids. Exact duplicate prompts are skipped. create_cards makes proposed flashcards the student approves.",
+        Tool(name: "label_practice_items", title: "Label practice problems",
+             description: """
+             Label problems split out of a course file (from get_practice with material_id): kind, difficulty 1-3, a short topic \
+             name (2-6 words, in the file's language) and marks when the file states them. The problem text and its solution \
+             never change.
+             """,
+             schema: Schema.object([
+                "material_id": Schema.int("The file the problems came from"),
+                "items": Schema.array(Schema.object([
+                    "id": Schema.int("Problem id"),
+                    "kind": Schema.enumString(PracticeItem.kinds.filter { $0 != "other" }, "Kind of problem"),
+                    "difficulty": Schema.int("1 easy, 2 medium, 3 hard", min: 1, max: 3),
+                    "topic": Schema.string("Short topic name", max: 80), "marks": Schema.number("Marks, if stated"),
+                ], required: ["id"]), "Problems", max: 40, min: 1),
+             ], required: ["material_id", "items"]), write: true) { a, store in
+            let labels = try a.objects("items", max: 40).map { i in
+                StudyStore.PracticeLabel(id: try i.int("id"), kind: try i.oneOf("kind", PracticeItem.kinds), difficulty: try i.optInt("difficulty"),
+                                         topicLabel: try i.optString("topic", max: 80), marks: try i.optDouble("marks"))
+            }
+            return writeJSON(try store.labelPracticeItems(materialId: try a.int("material_id"), labels))
+        },
+        Tool(name: "save_material_scan", title: "Save what a file says",
+             description: """
+             Keep what you found in a course file so the course builder can use it without reading the file again. For a \
+             syllabus: {"outcomes": [...], "schedule": [{"week": 1, "date": "2026-09-08", "topic": "..."}], "assessment": \
+             [{"title": "...", "weight_pct": 40, "covers": ["..."]}]}.
+             """,
              schema: Schema.object([
                 "material_id": Schema.int("Material id"),
-                "questions": Schema.array(Schema.object([
-                    "kind": Schema.enumString(["recall", "explain", "apply", "compare", "calculate"], "Question kind"),
-                    "prompt": Schema.string("The question", max: 400), "answer_key": Schema.string("Model answer", max: 800),
-                    "concept_name": Schema.string("Related concept", max: 80), "source_chunk_ids": Schema.intArray("Chunk ids", min: 1),
-                    "difficulty": Schema.int("1-3", min: 1, max: 3),
-                ], required: ["kind", "prompt", "answer_key", "source_chunk_ids"]), "Questions", max: 40, min: 1),
-                "create_cards": Schema.bool("Also propose one flashcard per new question (default false)"),
-             ], required: ["material_id", "questions"]), write: true) { a, store in
-            let items = try a.objects("questions", max: 40).map { q in
-                StudyStore.QuestionInput(kind: try q.string("kind", max: 20), prompt: try q.string("prompt", max: 400),
-                                         answerKey: try q.string("answer_key", max: 800), conceptName: try q.optString("concept_name", max: 80),
-                                         sourceChunkIds: try q.intArray("source_chunk_ids"), difficulty: try q.optInt("difficulty") ?? 2)
-            }
-            return writeJSON(try store.saveQuestions(materialId: try a.int("material_id"), items, createCards: try a.bool("create_cards", default: false)))
-        },
-        Tool(name: "propose_cards", title: "Propose flashcards",
-             description: "Propose short flashcards (front ≤ 200, back ≤ 300 characters; one idea per card). They wait in the app until the student approves or rewrites them.",
-             schema: Schema.object([
-                "material_id": Schema.int("Material id"),
-                "cards": Schema.array(Schema.object([
-                    "front": Schema.string("Question side", max: 200), "back": Schema.string("Answer side", max: 300),
-                    "concept_name": Schema.string("Related concept", max: 80), "source_chunk_ids": Schema.intArray("Chunk ids", min: 1),
-                ], required: ["front", "back", "source_chunk_ids"]), "Cards", max: 40, min: 1),
-             ], required: ["material_id", "cards"]), write: true) { a, store in
-            let items = try a.objects("cards", max: 40).map { c in
-                StudyStore.CardInput(front: try c.string("front", max: 200), back: try c.string("back", max: 300),
-                                     conceptName: try c.optString("concept_name", max: 80), sourceChunkIds: try c.intArray("source_chunk_ids"))
-            }
-            return writeJSON(try store.proposeCards(materialId: try a.int("material_id"), items))
-        },
-        Tool(name: "save_cornell_sheet", title: "Save Cornell sheet",
-             description: "Save a handwriting-ready Cornell sheet: 8-20 cues (questions or bare terms, NO answers), one summary prompt the student answers in their own words, and chunks with pictures they should look at themselves. Replaces an earlier Claude sheet with the same title.",
-             schema: Schema.object([
-                "material_id": Schema.int("Material id"), "title": Schema.string("Sheet title", max: 120),
-                "cues": Schema.array(Schema.object([
-                    "text": Schema.string("Cue (no answer)", max: 200), "kind": Schema.enumString(["question", "term"], "Cue kind"),
-                    "source_chunk_ids": Schema.intArray("Chunk ids", min: 1),
-                ], required: ["text", "kind", "source_chunk_ids"]), "8-20 cues", max: 20, min: 8),
-                "summary_prompt": Schema.string("One line the student answers in their own words", max: 300),
-                "look_yourself_chunk_ids": Schema.intArray("Chunks whose pictures the student should study"),
-             ], required: ["material_id", "title", "cues", "summary_prompt"]), write: true) { a, store in
-            let cues = try a.objects("cues", max: 20).map { c in
-                StudyStore.CueInput(text: try c.string("text", max: 200), kind: try c.string("kind", max: 10), sourceChunkIds: try c.intArray("source_chunk_ids"))
-            }
-            return writeJSON(try store.saveCornellSheet(materialId: try a.int("material_id"), title: try a.string("title", max: 120), cues: cues,
-                                                        summaryPrompt: try a.string("summary_prompt", max: 300),
-                                                        lookYourselfChunkIds: try a.intArray("look_yourself_chunk_ids")))
+                "kind": Schema.enumString(["syllabus", "outline"], "What was read"),
+                "result": ["type": "object", "description": "What the file says"],
+             ], required: ["material_id", "kind", "result"]), write: true) { a, store in
+            let id = try a.int("material_id")
+            guard let kind = try a.oneOf("kind", ["syllabus", "outline"]) else { throw ToolError.invalid("kind is required.") }
+            guard let result = a.raw["result"] as? [String: Any] else { throw ToolError.invalid("result must be an object.") }
+            let json = JSON.string(result)
+            guard json.count <= 40_000 else { throw ToolError.invalid("result is too long; keep it under 40,000 characters.") }
+            do { try store.saveMaterialScan(materialId: id, kind: kind, json: json, engine: nil) }
+            catch let e as StoreError { throw ToolError.invalid(e.description) }
+            return .json(["material_id": id, "kind": kind, "saved": true])
         },
         Tool(name: "save_note", title: "Save note",
              description: "Save a gap report, summary, session log, handwriting review, rubric check, practice set or exam-pattern analysis. Upserts by title over Claude's own notes; never touches the student's notes.",
@@ -455,13 +457,6 @@ enum ToolCatalog {
                                          focus: try b.optString("focus", max: 200))
             }
             return writeJSON(try store.proposeStudyBlocks(items))
-        },
-        Tool(name: "mark_material_processed", title: "Mark processed",
-             description: "Mark a material as processed. Requires at least one saved concept for it.",
-             schema: Schema.object(["material_id": Schema.int("Material id")], required: ["material_id"]), write: true) { a, store in
-            let id = try a.int("material_id")
-            try store.markMaterialProcessedChecked(id)
-            return .json(["material_id": id, "processed": true])
         },
         Tool(name: "record_session", title: "Record session",
              description: "Record a study session with a specific summary (what was solid, what wasn't) and the concepts that were weak.",

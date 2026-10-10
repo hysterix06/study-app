@@ -2,6 +2,8 @@
 
 Sep 30, 2026 · @Gibson Wade
 
+> **Superseded** by the October 2026 redesign (Notebook → Path → Session → Review). See [decisions.md](decisions.md) D18 and [UI-SCREENS.md](UI-SCREENS.md) for the app as it is now. The principles below still hold.
+
 ## Design principles
 
 The redesign rests on seven rules. Every screen, row and button below is checked against them, and a proposal that breaks one needs a written reason.

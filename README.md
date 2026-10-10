@@ -1,44 +1,32 @@
 # Study Tracker
 
-**Turn messy school material into things you actually understand and remember.**
+**Learn each course the best way to learn it, and walk into every exam ready.**
 
-Your classes arrive in pieces: a timetable in Outlook, deadlines on Moodle, lectures as slide decks, PDFs and Word files. Study Tracker puts all of it in one place, then turns each lecture into a study plan built on how memory works. You recall first, write by hand, test yourself, and review on a spaced schedule. Copying slides isn't part of it.
+Your classes arrive in pieces: deadlines on Moodle, lectures as slide decks, problem sets, past exams, a syllabus somewhere. Study Tracker sorts all of it on its own and turns it into one plan: write the course into a notebook, learn it topic by topic in the best order, and review before you forget. Opening the app shows one button: **Start**.
 
 It's a native macOS app. It's local-first, works without AI, and doesn't need an account.
 
-## What it does
+## How it works
 
-1. **Collects:** Import your timetable, connect your school's Moodle, and drop lecture files onto the window. The app sorts each file into its course, reads it (scanned pages and pictures too, using on-device text recognition) and finds the deadlines in syllabi and assignment briefs.
-2. **Organizes:** **Today** shows your next class, what's due, and one suggested next step. You also get a calendar you can edit, assignments with weights and grade math, and a study planner that schedules around your classes and work shifts.
-3. **Helps you understand:** Each lecture becomes concepts linked across the whole course, practice questions, proposed flashcards, and a printable Cornell note sheet. A four-step study loop takes you from first exposure to long-term memory.
+1. **Your notebook first.** Each course is written, start to finish, into your own dotted notebook: per topic, the words (definitions, with your course's own wording when its slides have it) and the pictures to draw. It takes about five minutes a page, and it shows you the whole course isn't that big. Later it's what you revise from.
+2. **A path through the course.** Each course is laid out as units of numbered topics (*2.3 Overbooking*) in the best order to learn it at university level, shaped by what your course stresses, what its exams give marks for, and when things are due.
+3. **Guided sessions.** *Start* picks the next session by fixed rules you can see ("Final exam in 9 days · taught Tuesday · 25 min"): your notebook pages first, then topics in order, pulled forward by exams and by lectures that have moved past you. A topic session warms up with due cards, teaches the idea with a worked example and your course's angle, has you practise your course's own problems, explain it back, and keep the cards worth remembering. Quick (10 min), standard (25) or deep (50).
+4. **Review and exam prep.** Flashcards come back on an FSRS schedule. Two weeks before an exam, exam prep has you cover each notebook page, recall it, redraw it and rate it *solid* or *shaky*, then practise exam-style questions, shaky topics first.
 
-## How it helps you learn
+What sits underneath:
 
-Each step uses a learning technique that research supports:
+- **Files sort themselves.** Lecture slides shape the path; problem sets, tutorials and class examples become practice (each problem split out word for word, with its solution when the course gave one); past exams show where the marks are; syllabi give deadlines and weights; anything that doesn't belong is set aside. Only files the app is unsure about wait for you, in **Needs a look**.
+- **How well you know each topic** comes only from your own ratings: *in your notebook*, *learning*, *practised*, *solid*, and *needs a refresh* when it fades.
+- **Two kinds of content, kept apart.** General teaching (explanations, examples) is labelled as general knowledge. Anything about what *your course* says points at the slide it comes from, and the app checks the slide really says it.
 
-| Step | What you do | Why it works |
-| --- | --- | --- |
-| **1. Recall** | Before reading anything, write down what you remember. The AI compares it with the lecture and saves a gap report. | **Retrieval practice:** pulling information out of memory strengthens it more than re-reading. Seeing your gaps shows you what to focus on. |
-| **2. Learn** | *Process lecture* builds concepts, questions and a Cornell sheet. Concepts link to every lecture that teaches them. | **Elaboration:** connecting ideas across lectures builds understanding, not isolated facts. |
-| **3. Write** | Print the sheet and fill it in **by hand, from memory**. Then photograph it and get your notes checked. | **Generation effect:** making notes yourself sticks better than reading notes you were handed. The check catches what you missed. |
-| **4. Test** | Review flashcards on an FSRS schedule, mixed with cards from other lectures, or take a quiz in the app's chat. | **Spaced repetition** and **interleaving:** reviews come just before you'd forget, and mixed topics teach you to tell ideas apart. |
+## AI: free for the everyday work, strong for building courses
 
-A few other things support this:
+The app works without AI: courses still get a path from your lectures, and sessions, reviews and exam prep all run. AI comes in two parts, set in Settings › AI:
 
-- **The AI proposes flashcards. You approve or rewrite them**, so the cards are in your own words.
-- **Explain it back:** explain a concept in plain words and see where your explanation breaks down. This is the Feynman technique.
-- **Your ratings are yours:** the AI never grades your recall for you.
-- **Insights** show whether your studying is working: on-time rate, 30-day card retention, recall within 48 hours, study minutes per week, grades against targets, and the concepts you get wrong most often.
+- **Everyday AI**, free: sorts files, reads syllabi and labels practice problems, on your Mac with Apple Intelligence when it can. *Sign in with OpenRouter* adds free online models, which also check your answers, give feedback on your explanations and tutor you in a session. (The on-device model never grades: it isn't reliable enough for that.)
+- **Course builder**, strong: lays out each course, writes its notebook guide (with reference drawings) and its lessons. It's Claude: Claude Code on your Mac (it uses your Claude plan, in the background, with access to Study Tracker and nothing else), an Anthropic API key, Claude Desktop, or *Copy for Claude.ai* and paste the answer back. Without one, free AI builds a basic version.
 
-## AI: your choice, or none
-
-The app works fully without AI. When you want AI, you pick where it runs:
-
-- **Built in and free:** Apple Intelligence on your Mac, or free online models through OpenRouter. API keys for other services (Groq, Gemini, Mistral, OpenAI, Anthropic, DeepSeek) and local engines (Ollama, LM Studio) also work.
-- **An AI app you already use:** Claude Desktop, Claude Code, ChatGPT's Codex, VS Code with Copilot, Cursor, LM Studio and others connect in one click through a small local [MCP](https://modelcontextprotocol.io) server that ships with the app.
-- **Any chatbot:** *Copy for any chatbot* gives you a ready-made prompt. Paste the answer back and it goes through the same checks.
-
-Your course material is only sent to the engine you chose. Online engines ask for your agreement the first time. Free engines that may train on your data are labeled.
+Your course material only goes to the engine you chose. Online engines ask for your agreement the first time.
 
 ## Getting started
 
@@ -64,41 +52,37 @@ scripts/build-app.sh --install     # builds, signs (ad hoc) and copies the app t
 
 ### First run
 
-A short setup guide opens the first time you launch the app. You can skip any step and come back to it later under **Connections** in the sidebar.
+Setup has four steps, and any of them can be skipped:
 
-1. **Moodle** (optional): Type your school's Moodle address and sign in on your school's own page. Deadlines, submission status, grades and new course files then sync on their own. If your school doesn't use Moodle, skip this step.
-2. **Term:** Name the term and set its start and end dates. You can add breaks later in Settings → Terms and breaks.
-3. **Timetable:** Import an `.ics` file (in Outlook: File → Save Calendar) or subscribe to a calendar link. Add work shifts as **busy time** so the planner avoids them.
-4. **AI** (optional): If Apple Intelligence is on, it works without setup. *Sign in with OpenRouter* adds free online models, and any AI app on your Mac connects in one click.
-5. **Files:** Drop PowerPoint, PDF or Word files onto the window or into `~/StudyTracker/Inbox`, then confirm the course in the Inbox.
-
-To look around first, choose **Explore with sample data** on the welcome screen. It adds a term, three courses and a lecture. To remove them, go to Settings → Data and export.
+1. **Welcome**, with *Try sample data* if you'd like to look around first (a term with a fully built course; remove it in Settings › Data and export).
+2. **Your school:** connect Moodle and your courses, deadlines, grades and files come in on their own. No Moodle? Add your courses by name.
+3. **AI:** free AI is found and turned on; choose whether Claude builds your courses.
+4. **Done:** each course gets its path straight away, and a fuller one as the course builder writes it.
 
 ## Everyday use
 
-- **Today:** answers "what's next and what's due" and suggests one action, ranked by assignment weight and how soon it's due.
-- **Inbox:** shows new files, deadlines found in documents, proposed flashcards and study blocks waiting for your OK, and anything that failed to import.
-- **Calendar:** has week, month and agenda views. Drag a class to move it, then choose *This class only*, *following*, or *all*. *Plan study* proposes study blocks around your classes and busy time.
-- **Assignments:** quick add understands plain text. Type `Pricing report HM210 fri 5pm 30% 6h` and press Enter.
-- **Study:** shows today's reviews, every lecture, and Insights. Each file has its own page with the four study steps, its concepts, cards and sessions.
-- **Menu bar:** shows the next class, the suggested action and what's due soon.
-- **Optional:** reminders, sync to Apple Calendar and Reminders (so your iPhone sees them), Anki export for reviewing on your phone, and Obsidian export.
+- **Home:** the next session and its *Start* button, anything urgent, each course's notebook and progress, and what's due this week.
+- **A course:** **Path** (the topics and how well you know each), **Notebook** (the whole guide on one page, with *Write next pages*, an index to copy into your notebook, and print or PDF), **Angles** (how the course grades and where its exams give marks), **Files**, and **Deadlines** (grades, deadlines and class times).
+- **Schedule:** the calendar (week, month, agenda; drag a class to move it) and assignments. Quick add understands plain text: `Pricing report HM210 fri 5pm 30% 6h`.
+- **Needs a look:** files the app wasn't sure about, deadlines to confirm, conflicts with your edits, and AI work that failed.
+- **Menu bar:** the next session with *Start*, reviews due, and what's due soon.
+- **Optional:** reminders, sync to Apple Calendar and Reminders (so your iPhone sees them), Anki export, and Markdown or Obsidian export (including your notebook guide and lessons).
 
 ### Keyboard shortcuts
 
 | Keys | Action |
 | --- | --- |
-| `⌘1`–`⌘5` | Today, Inbox, Calendar, Assignments, Study |
-| `⌘K` | Command palette |
+| `⌘↩` | Start the next session |
+| `⌘1`, `⌘2`, `⌘3`… | Home, Schedule, then your courses |
+| `⌘K` | Command palette (courses, topics, files, actions) |
 | `⌘N` | New assignment (quick add) |
 | `⌘O` | Import files |
-| `⌘⇧R` | Start review (Space shows the answer, `1`–`4` rate it) |
-| `⌘⇧P` | Plan study blocks |
+| `⌘⇧R` | Just review (Space shows the answer, `1`–`4` rate it) |
+| `⌘T` | In a session: the tutor |
+| `Esc` | In a session: close it (your place is saved) |
 | `⌘⇧S` | Sync |
-| `⌘⇧L` | New AI chat |
 | `⌘[` / `⌘]` | Back / forward |
 | `⌘Z` / `⌘⇧Z` | Undo / redo |
-| `T`, `←` `→` | In the calendar: jump to today, previous or next period |
 
 ## Privacy and your data
 
@@ -110,8 +94,7 @@ Everything stays on your Mac. The app doesn't have accounts, analytics or a serv
 | `~/StudyTracker/Inbox` | Drop folder, watched while the app is running |
 | `~/StudyTracker/Library/<term>/<course>/` | Your original files, filed by course, plus pictures extracted from slides |
 | `~/StudyTracker/Backups` | Daily backups (the last 14 are kept), plus one before the AI's first change each session |
-| `~/StudyTracker/Export` | PDFs, JSON and Markdown exports, Anki `.tsv` and `.ics` files |
-| `~/StudyTracker/Captures` | Photos of your handwritten sheets |
+| `~/StudyTracker/Export` | JSON and Markdown exports, Anki `.tsv` and `.ics` files |
 | `~/StudyTracker/mcp.log` | MCP server log (it never contains secrets) |
 
 Calendar links, the Moodle token and AI keys are stored in the macOS Keychain. AI chats are deleted after 90 days. You can change this in Settings.
@@ -120,20 +103,20 @@ Calendar links, the Moodle token and AI keys are stored in the macOS Keychain. A
 
 These rules are enforced in code and apply to every engine and every connected app:
 
-- **AI can't delete anything and can't run SQL.** It can't edit your courses, schedule, confirmed assignments or anything you wrote.
-- **Every concept and question must cite its source:** the part of the lecture it came from. Answers pasted from a chatbot go through the same check.
-- **Assignments, study blocks and flashcards from AI are proposals** until you confirm them.
-- **Flashcard ratings come from you.** In the app's chat you tap the rating yourself.
-- Paid engines stop at a monthly spending limit that you set.
-- Every AI change is logged. Go to Connections → AI to see the activity.
+- **AI can't delete anything and can't run SQL.** It can't edit your courses, schedule, confirmed assignments or anything you wrote, and it never changes your notebook marks or progress.
+- **What your course says must point at your course's files,** and a definition "in your course's words" must actually be in the slide it cites. Answers pasted from a chatbot go through the same checks.
+- **A simpler version never replaces a fuller one:** free AI doesn't overwrite what the course builder wrote.
+- **Deadlines and study blocks from AI are proposals** until you confirm them.
+- **Every rating is yours:** flashcards, practice problems, explaining it back, exam prep. AI feedback is advice only.
+- Paid engines stop at a monthly spending limit that you set. Every AI change is logged; the history is in Settings › AI.
 - Setting `STUDY_MCP_READONLY=1` makes the MCP server read-only.
 
 ## Development
 
 ```sh
 swift build                 # the app, MCP server and core
-swift test                  # 150+ tests: schedules and daylight saving, ICS, quick add, grades, FSRS, Today rules,
-                            # planner, file parsers (including on-device OCR), MCP over stdio, AI engines and pipelines
+swift test                  # 250+ tests: the v6 migration, file sorting, practice splitting, paths and their merges,
+                            # the session scheduler, mastery, sessions, MCP over stdio, AI engines and pipelines, LessonKit
 STUDY_LIVE_AI=1 swift test --filter LiveAITests   # also runs real engines (Apple Intelligence) when available
 swift run StudyTracker      # runs without bundling (notifications need the .app bundle)
 ```
@@ -144,10 +127,11 @@ swift run StudyTracker      # runs without bundling (notifications need the .app
 | `Sources/StudyMCPCore`, `Sources/study-mcp` | The MCP server |
 | `Sources/StudyAI` | AI engines, pipelines, the chat loop and AI-app connectors. Apple-only code is behind `canImport`, so this module stays portable. |
 | `Sources/StudyTracker` | The SwiftUI app |
+| `Resources/LessonKit` | The lesson and notebook renderer: a page with marked and KaTeX, bundled (no network) |
 | `Tests/StudyCoreTests` | Tests and fixtures (sample Outlook, Moodle and shift `.ics` files; PPTX, DOCX and PDF files are generated during tests) |
 | `scripts/` | `build-app.sh`, plus `make_icon.py`, which generates the app icon from code |
 
-[docs/SPEC.md](docs/SPEC.md) is the original specification. [docs/decisions.md](docs/decisions.md) records every change from it and the reason for each one.
+[docs/SPEC.md](docs/SPEC.md) is the original specification. [docs/decisions.md](docs/decisions.md) records every change from it and the reason for each one; D18 is the notebook-first redesign.
 
 ### Roadmap
 

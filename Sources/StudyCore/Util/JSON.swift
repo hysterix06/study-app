@@ -26,6 +26,19 @@ public enum JSON {
         (parse(s) as? [Any])?.compactMap { $0 as? String } ?? []
     }
 
+    /// A Codable value from stored JSON, or nil when it's missing or doesn't fit.
+    public static func decode<T: Decodable>(_ type: T.Type, _ s: String?) -> T? {
+        guard let s, let data = s.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
+    /// A Codable value as compact JSON with sorted keys (stable for comparisons and tests).
+    public static func encode<T: Encodable>(_ value: T) -> String {
+        let e = JSONEncoder()
+        e.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? e.encode(value)).map { String(decoding: $0, as: UTF8.self) } ?? "null"
+    }
+
     /// Converts Swift values (optionals, Dates, SQLValue, nested) into JSONSerialization-safe values.
     public static func sanitize(_ value: Any?, round: Bool = false) -> Any {
         guard let value else { return NSNull() }

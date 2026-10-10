@@ -7,8 +7,10 @@ extension SettingsPane {
     var icon: String {
         switch self {
         case .general: return "slider.horizontal.3"
-        case .planner: return "wand.and.stars"
+        case .study: return "wand.and.stars"
         case .terms: return "calendar.badge.clock"
+        case .ai: return "sparkles"
+        case .connections: return "link"
         case .notifications: return "bell.badge"
         case .appearance: return "paintpalette"
         case .data: return "externaldrive"
@@ -17,7 +19,7 @@ extension SettingsPane {
     }
 }
 
-/// Settings (⌘,) holds preferences only; connections live in the main window's Connections screen.
+/// Settings (⌘,): preferences, AI (Everyday AI and the course builder, with Advanced below) and Connections.
 struct SettingsWindow: View {
     @Environment(AppModel.self) var model
     @AppStorage("settings.pane") var pane: SettingsPane = .general
@@ -30,8 +32,10 @@ struct SettingsWindow: View {
                     VStack(alignment: .leading, spacing: 18) {
                         switch p {
                         case .general: GeneralSettings()
-                        case .planner: PlannerSettings()
+                        case .study: PlannerSettings()
                         case .terms: TermsSettings()
+                        case .ai: AISettingsView()
+                        case .connections: ConnectionsSettings()
                         case .notifications: NotificationSettings()
                         case .appearance: AppearanceSettings()
                         case .data: DataSettings()
@@ -45,7 +49,7 @@ struct SettingsWindow: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .frame(width: 720, height: 560)
+        .frame(width: 760, height: 600)
     }
 }
 
@@ -74,7 +78,6 @@ struct GeneralSettings: View {
             Picker("Week starts on", selection: settingBinding(model, "week_starts_on", default: "1")) { Text("Monday").tag("1"); Text("Sunday").tag("7") }
             TimeSetting(label: "Default due time", key: "default_due_time", def: "23:59")
             Toggle("Type dates as day/month (12/10 = 12 October)", isOn: boolBinding(model, "day_first_dates", default: model.store.dayFirstDates))
-            Picker("Paper for Cornell sheets", selection: settingBinding(model, "paper_size", default: "a4")) { ForEach(PaperSize.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) } }
         }.formStyle(.grouped)
     }
 }

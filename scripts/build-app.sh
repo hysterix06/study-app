@@ -51,6 +51,10 @@ cp "$BIN/study-mcp" "$APP/Contents/MacOS/study-mcp"
 cp "$ICONWORK/Assets.car" "$APP/Contents/Resources/Assets.car"
 cp "$ICONWORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$DIST/study-tracker.mcpb" "$APP/Contents/Resources/study-tracker.mcpb"
+# Lessons and notebook pages: marked and KaTeX, bundled so nothing loads from the network. (Not SwiftPM resources:
+# Bundle.module in an executable target breaks signing.)
+rm -rf "$APP/Contents/Resources/LessonKit"
+ditto Resources/LessonKit "$APP/Contents/Resources/LessonKit"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

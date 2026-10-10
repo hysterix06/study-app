@@ -36,19 +36,23 @@ struct StudyTrackerApp: App {
                     Button("Redo") { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }.keyboardShortcut("z", modifiers: [.command, .shift])
                 }
                 CommandMenu("Go") {
-                    ForEach(Array(SidebarItem.numbered.enumerated()), id: \.element) { i, s in
-                        Button(s.title) { model.open(s) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")))
+                    Button("Home") { model.open(.home) }.keyboardShortcut("1")
+                    Button("Schedule") { model.open(.schedule) }.keyboardShortcut("2")
+                    ForEach(Array(model.store.courses().prefix(7).enumerated()), id: \.element.id) { i, c in
+                        Button(c.displayName) { model.open(.course(c.id)) }.keyboardShortcut(KeyEquivalent(Character("\(i + 3)")))
                     }
                     Divider()
                     Button("Back") { model.goBack() }.keyboardShortcut("[").disabled(!model.canGoBack)
                     Button("Forward") { model.goForward() }.keyboardShortcut("]").disabled(!model.canGoForward)
                     Divider()
                     Button("Command Palette") { model.showPalette = true }.keyboardShortcut("k")
-                    Button("Connections") { model.go(.connections(nil)) }
-                    Button("AI Activity") { model.go(.activity(jobId: nil)) }
+                    Button("Needs a Look") { model.go(.needsLook) }
                 }
                 CommandMenu("Study") {
-                    Button("Start Review") { model.startReview() }.keyboardShortcut("r", modifiers: [.command, .shift])
+                    Button("Start Next Session") {
+                        if let p = model.store.nextSessionPlan().primary { model.startSession(p) } else { model.show("You're up to date.") }
+                    }.keyboardShortcut(.return, modifiers: [.command])
+                    Button("Just Review") { model.startReview() }.keyboardShortcut("r", modifiers: [.command, .shift])
                     Button("Plan Study Blocks") { model.planStudy() }.keyboardShortcut("p", modifiers: [.command, .shift])
                     Button("Sync Calendars and Moodle") {
                         Task { await model.syncFeeds(silent: false); await model.moodle.sync(silent: false) }
@@ -100,7 +104,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func seedDefaults(_ store: StudyStore) {
         if store.setting("default_timezone") == nil { store.setSetting("default_timezone", TimeZone.current.identifier) }
         if store.setting("default_due_time") == nil { store.setSetting("default_due_time", "23:59") }
-        if store.setting("paper_size") == nil { store.setSetting("paper_size", Locale.current.region?.identifier == "US" ? "letter" : "a4") }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -126,20 +129,18 @@ struct RootView: View {
         Group {
             if case .setup(let step) = model.route {
                 ZStack(alignment: .bottom) { SetupFlow(step: step); ToastHost() }
+            } else if let session = model.session {
+                ZStack(alignment: .bottom) { SessionView(c: session).id(session.id); ToastHost() }
             } else {
                 split
             }
         }
         .onChange(of: model.settingsRequest) { openSettings() }
-        .sheet(item: $model.review) { session in ReviewView(session: session).themedSheet() }
         .sheet(item: $model.icsPreview) { p in ICSPreviewSheet(preview: p).themedSheet() }
         .sheet(isPresented: $model.showPalette) { CommandPalette().themedSheet() }
         .sheet(item: $model.courseEditor) { c in CourseEditor(course: c).themedSheet() }
         .sheet(item: $model.chat) { c in ChatPanel(chat: c).themedSheet() }
         .sheet(item: $model.paste) { r in PasteSheet(request: r).themedSheet() }
-        .sheet(item: Binding(get: { model.handwritingMaterialId.map { IdentifiedInt(id: $0) } }, set: { model.handwritingMaterialId = $0?.id })) { m in
-            HandwritingSheet(materialId: m.id).themedSheet()
-        }
     }
 
     var split: some View {
@@ -161,7 +162,7 @@ struct RootView: View {
                     Button { model.goForward() } label: { Image(systemName: "chevron.right") }
                         .disabled(!model.canGoForward).help("Forward (⌘])")
                 }
-                ToolbarItem(placement: .primaryAction) { ActivityToolbarButton() }
+                ToolbarItem(placement: .primaryAction) { AIStatusLine() }
                 ToolbarItem(placement: .primaryAction) {
                     SettingsLink { Image(systemName: "gearshape") }
                         .help("Settings (⌘,)").accessibilityLabel("Settings")
@@ -176,14 +177,33 @@ struct RootView: View {
 
     @ViewBuilder var detail: some View {
         switch model.route {
-        case .inbox: InboxScreen()
+        case .home, .setup, .settings: HomeView()
+        case .needsLook: NeedsLookScreen()
         case .calendar, .occurrence: CalendarScreen()
         case .assignments, .assignment: AssignmentsScreen()
         case .course(let id, _): CourseScreen(courseId: id)
-        case .study, .material, .review: StudyScreen()
-        case .connections(let k): ConnectionsScreen(kind: k)
-        case .today, .activity, .settings, .setup: TodayView()
+        case .topic(let id): TopicPage(topicId: id)
+        case .material(let id): MaterialPage(materialId: id)
         }
+    }
+}
+
+/// The quiet line in the toolbar: what the AI is doing now, with its history in Settings › AI.
+struct AIStatusLine: View {
+    @Environment(AppModel.self) var model
+    var body: some View {
+        let _ = model.revision
+        let failed = model.store.jobsNeedingAttention().filter { $0.state == .failed && !$0.isQuiet }.count
+        Button { model.go(.settings(.ai)) } label: {
+            HStack(spacing: 6) {
+                if model.jobs.isRunning { ProgressView().controlSize(.mini) }
+                if let line = model.jobs.statusLine { Text(line).font(.stSmall).lineLimit(1).frame(maxWidth: 260) }
+                else if failed > 0 { Label("\(failed) AI task\(failed == 1 ? "" : "s") failed", systemImage: "exclamationmark.triangle").font(.stSmall) }
+                else { Image(systemName: "sparkles") }
+            }.foregroundStyle(failed > 0 && model.jobs.statusLine == nil ? Theme.attention : Theme.textSecondary)
+        }
+        .buttonStyle(.borderless)
+        .help("AI activity and settings")
     }
 }
 
@@ -202,25 +222,21 @@ func loadURLs(_ providers: [NSItemProvider], completion: @escaping ([URL]) -> Vo
     group.notify(queue: .main) { completion(urls) }
 }
 
-/// Three groups: Screens, Courses (archived ones collapsed) and Connections, each with a live status dot.
+/// Home, one row per course (archived ones collapsed), and Schedule; Settings at the bottom.
 struct Sidebar: View {
     @Environment(AppModel.self) var model
     @AppStorage("sidebar.archivedOpen") var archivedOpen = false
 
     var body: some View {
         let _ = model.revision
-        let inbox = model.store.inboxCount()
+        let looks = model.store.needsLookCount()
         let all = model.store.courses(includeArchived: true)
         let current = all.filter { !$0.archived }, archived = all.filter(\.archived)
         VStack(spacing: 0) {
             List(selection: Binding(get: { model.sidebarSelection }, set: { if let s = $0 { model.open(s) } })) {
                 Section {
-                    ForEach(SidebarItem.numbered) { s in
-                        Label(s.title, systemImage: s.icon)
-                            .badge(s == .inbox && inbox > 0 ? inbox : 0)
-                            .tag(SidebarSelection.screen(s))
-                            .accessibilityLabel(s == .inbox && inbox > 0 ? "Inbox, \(inbox) items" : s.title)
-                    }
+                    Label("Home", systemImage: "house").badge(looks).tag(SidebarSelection.home)
+                        .accessibilityLabel(looks > 0 ? "Home, \(looks) things need a look" : "Home")
                 }
                 Section {
                     ForEach(current) { c in courseRow(c) }
@@ -241,23 +257,7 @@ struct Sidebar: View {
                     }
                 }
                 Section {
-                    ForEach(ConnectionKind.allCases) { k in
-                        let status = model.connectionStatus(k)
-                        HStack {
-                            Label(k.title, systemImage: k.icon)
-                            Spacer()
-                            StatusDot(status: status)
-                        }
-                        .tag(SidebarSelection.connection(k))
-                        .accessibilityLabel("\(k.title), \(status.title)")
-                    }
-                } header: {
-                    Button { model.go(.connections(nil)) } label: {
-                        HStack(spacing: 6) {
-                            Text("Connections")
-                            if model.anyConnectionNeedsAttention { Circle().fill(Theme.attention).frame(width: 6, height: 6) }
-                        }
-                    }.buttonStyle(.plain)
+                    Label("Schedule", systemImage: "calendar").tag(SidebarSelection.schedule)
                 }
             }
             .listStyle(.sidebar)
@@ -271,10 +271,16 @@ struct Sidebar: View {
                 }.padding(.horizontal, 14).padding(.vertical, 8)
             }
             Divider()
-            SettingsLink { Label("Settings", systemImage: "gearshape").frame(maxWidth: .infinity, alignment: .leading) }
-                .buttonStyle(.borderless).foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .help("Settings (⌘,)")
+            HStack {
+                SettingsLink { Label("Settings", systemImage: "gearshape") }
+                    .buttonStyle(.borderless).foregroundStyle(Theme.textSecondary).help("Settings (⌘,)")
+                if model.anyConnectionNeedsAttention {
+                    Button { model.go(.settings(.connections)) } label: { Circle().fill(Theme.attention).frame(width: 7, height: 7) }
+                        .buttonStyle(.borderless).help("A connection needs attention")
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
         }
         .background(Theme.sidebar)
     }

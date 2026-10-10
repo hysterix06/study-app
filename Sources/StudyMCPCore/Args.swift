@@ -5,8 +5,14 @@ import StudyCore
 struct Args {
     let raw: [String: Any]
     let path: String
+    /// The Study Tracker job this call belongs to (the `job_id` the server takes off every call).
+    let jobId: Int?
+    /// The AI app that's calling, when it said.
+    let client: String?
 
-    init(_ raw: [String: Any], path: String = "") { self.raw = raw; self.path = path }
+    init(_ raw: [String: Any], path: String = "", jobId: Int? = nil, client: String? = nil) {
+        self.raw = raw; self.path = path; self.jobId = jobId; self.client = client
+    }
 
     private func name(_ k: String) -> String { path.isEmpty ? k : "\(path).\(k)" }
 
@@ -64,6 +70,18 @@ struct Args {
             if let n = v as? NSNumber { return n.intValue }
             if let s = v as? String, let i = Int(s) { return i }
             throw ToolError.invalid("\(name(k)) must contain only integers.")
+        }
+    }
+
+    /// Topics named by id, key or title: integers and strings both accepted.
+    func refArray(_ k: String, max: Int = 40) throws -> [String] {
+        guard has(k) else { return [] }
+        guard let arr = raw[k] as? [Any] else { throw ToolError.invalid("\(name(k)) must be an array of topic ids or titles.") }
+        if arr.count > max { throw ToolError("TOO_LARGE", "\(name(k)) has \(arr.count) items; the limit is \(max).") }
+        return try arr.map { v in
+            if let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return String(n.intValue) }
+            if let s = v as? String, s.count <= 160 { return s }
+            throw ToolError.invalid("\(name(k)) must contain topic ids or titles.")
         }
     }
 

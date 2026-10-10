@@ -4,27 +4,9 @@ import StudyCore
 import UniformTypeIdentifiers
 import StudyAI
 
-/// Items in the sidebar. Each one opens the last route used under it.
-enum SidebarItem: String, CaseIterable, Identifiable {
-    case today, inbox, calendar, assignments, study
-    var id: String { rawValue }
-    var title: String { rawValue.capitalized }
-    var icon: String {
-        switch self {
-        case .today: return "sun.max"
-        case .inbox: return "tray"
-        case .calendar: return "calendar"
-        case .assignments: return "checklist"
-        case .study: return "brain.head.profile"
-        }
-    }
-    /// ⌘1…⌘5, in sidebar order.
-    static let numbered: [SidebarItem] = [.today, .inbox, .calendar, .assignments, .study]
-}
-
-/// A row in the sidebar: a screen, a course, or a connection.
+/// The sidebar: Home, one row per course, and Schedule. Each row opens the last route used under it.
 enum SidebarSelection: Hashable {
-    case screen(SidebarItem), course(Int), connection(ConnectionKind?)
+    case home, course(Int), schedule
 }
 
 struct Toast: Identifiable {
@@ -42,7 +24,7 @@ final class AppModel {
     let store: StudyStore
     var revision = 0
     /// Where the main window is. The only way to change it is `go(_:)`.
-    private(set) var route: Route = .today
+    private(set) var route: Route = .home
     private(set) var backStack: [Route] = []
     private(set) var forwardStack: [Route] = []
     /// Returning to a sidebar item restores the route last used under it.
@@ -50,13 +32,10 @@ final class AppModel {
     var showPalette = false
     var focusQuickAdd = 0
     var toast: Toast?
-    var review: ReviewSession?
     var progress: String?
+    /// True while the student is in a study session: background AI work waits so their session stays fast.
+    var studying: Bool { session != nil }
     var icsPreview: ICSPreview?
-    var handwritingMaterialId: Int?
-    /// The Activity panel (toolbar), optionally scrolled to one job.
-    var showActivity = false
-    var activityJobId: Int?
     /// Bumped to ask the root view to open the Settings window (it holds the `openSettings` action).
     var settingsRequest = 0
     var courseEditor: Course?
@@ -65,6 +44,11 @@ final class AppModel {
     var jobs: AIJobRunner!
     /// The open study chat, if any (shown as a sheet).
     var chat: ChatController?
+    /// The session in progress: it takes the whole window.
+    var session: SessionController? {
+        // The background work that waited for the session starts again.
+        didSet { if session == nil && oldValue != nil { jobs?.pump() } }
+    }
     /// A copy-and-paste job waiting for a chatbot's answer.
     var paste: PasteRequest?
     var notifications: NotificationService!
@@ -101,6 +85,23 @@ final class AppModel {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             housekeeping()
             enrichPendingImages()
+            resortOldFiles()
+        }
+    }
+
+    /// After the v6 update, and whenever the sorting rules improve: re-sorts files the rules placed automatically
+    /// (tutorials, exercises and solutions the old rules filed as lectures), and dates and pairs every file. Off the
+    /// main thread, since it reads the first pages of every file.
+    func resortOldFiles() {
+        let store = self.store
+        worker.async {
+            let moved = store.resortFiles()
+            DispatchQueue.main.async {
+                self.refresh()
+                self.jobs.readNewFiles()
+                self.jobs.prepareCourses()
+                if moved > 0 { self.show("Sorted your files again: \(moved) that were filed as lectures are now practice, exams or course info.") }
+            }
         }
     }
 
@@ -135,6 +136,13 @@ final class AppModel {
         }
         notifications.scheduleSoon()
         calendarSync.syncSoon()
+        jobs.buildCourses()
+        // Cards fade and weeks pass even when nothing is studied, so practised topics come due for a refresh.
+        let store = self.store
+        worker.async {
+            for c in store.courses() { store.refreshMastery(courseId: c.id) }
+            DispatchQueue.main.async { self.refresh() }
+        }
     }
 
     // MARK: Toasts and undo (8 seconds, §5.2)
@@ -182,12 +190,6 @@ final class AppModel {
     /// Navigates by route. `replace` changes the current entry without adding history (tabs, date steps, filters).
     func go(_ r: Route, replace: Bool = false) {
         switch r {
-        case .review(let courseId):
-            startReview(courseId: courseId); return
-        case .activity(let jobId):
-            activityJobId = jobId
-            showActivity = true
-            return
         case .settings(let pane):
             UserDefaults.standard.set(pane.rawValue, forKey: "settings.pane")
             settingsRequest += 1
@@ -227,35 +229,22 @@ final class AppModel {
         lastRoute[r.screen] = r
     }
 
-    /// Opens a sidebar item at its last route.
-    func open(_ item: SidebarItem) {
-        switch item {
-        case .today: go(.today)
-        case .inbox: go(lastRoute[.inbox] ?? .inbox(nil))
-        case .calendar: go(lastRoute[.calendar] ?? .calendar(.week, nil))
-        case .assignments: go(lastRoute[.assignments] ?? .assignments)
-        case .study: go(lastRoute[.study] ?? .study(.today))
-        }
-    }
-
     func open(_ selection: SidebarSelection) {
         switch selection {
-        case .screen(let item): open(item)
-        case .course(let id): go(lastRoute[.course(id)] ?? .course(id, .overview))
-        case .connection(let kind): go(.connections(kind))
+        case .home: go(.home)
+        case .course(let id): go(lastRoute[.course(id)] ?? .course(id, .path))
+        case .schedule: go(lastRoute[.schedule] ?? .calendar(.week, nil))
         }
     }
 
     var sidebarSelection: SidebarSelection? {
         switch route {
-        case .today: return .screen(.today)
-        case .inbox: return .screen(.inbox)
-        case .calendar, .occurrence: return .screen(.calendar)
-        case .assignments, .assignment: return .screen(.assignments)
-        case .study, .material, .review: return .screen(.study)
+        case .home, .needsLook: return .home
+        case .calendar, .occurrence, .assignments, .assignment: return .schedule
         case .course(let id, _): return .course(id)
-        case .connections(let k): return .connection(k)
-        case .activity, .settings, .setup: return nil
+        case .topic(let id): return store.topic(id).map { .course($0.courseId) }
+        case .material(let id): return store.material(id)?.courseId.map { .course($0) } ?? .home
+        case .settings, .setup: return nil
         }
     }
 
@@ -266,23 +255,18 @@ final class AppModel {
         courseEditor = Course(termId: term.id, code: "", name: "", color: store.nextCourseColor())
     }
 
-    func openCourse(_ id: Int, tab: CourseTab = .overview) { go(.course(id, tab)) }
+    func openCourse(_ id: Int, tab: CourseTab = .path) { go(.course(id, tab)) }
     func openAssignment(_ id: Int) { go(.assignment(id)) }
     func openMaterial(_ id: Int) { go(.material(id)) }
 
     var courseTab: CourseTab {
-        get { if case .course(_, let tab) = route { return tab }; return .overview }
+        get { if case .course(_, let tab) = route { return tab }; return .path }
         set { if case .course(let id, _) = route { go(.course(id, newValue), replace: true) } }
     }
 
     var selectedAssignmentId: Int? {
         get { if case .assignment(let id) = route { return id }; return nil }
         set { if let newValue { go(.assignment(newValue)) } else { go(.assignments, replace: true) } }
-    }
-
-    var studyMaterialId: Int? {
-        get { if case .material(let id) = route { return id }; return nil }
-        set { go(newValue.map { .material($0) } ?? .study(.lectures), replace: true) }
     }
 
     var calendarMode: CalendarMode {
@@ -315,19 +299,22 @@ final class AppModel {
     /// The toolbar path, e.g. Courses › HM210 › Materials.
     var breadcrumb: [String] {
         switch route {
-        case .today: return ["Today"]
-        case .inbox(let s): return ["Inbox"] + (s.map { [$0.rawValue.capitalized] } ?? [])
-        case .calendar(let m, _): return ["Calendar", m.title]
-        case .occurrence: return ["Calendar", "Week"]
-        case .assignments: return ["Assignments"]
-        case .assignment(let id): return ["Assignments", store.assignment(id)?.title ?? "Assignment"]
+        case .home: return ["Home"]
+        case .needsLook: return ["Home", "Needs a look"]
+        case .calendar(let m, _): return ["Schedule", m.title]
+        case .occurrence: return ["Schedule", "Week"]
+        case .assignments: return ["Schedule", "Assignments"]
+        case .assignment(let id): return ["Schedule", store.assignment(id)?.title ?? "Assignment"]
         case .course(let id, let tab):
             guard let c = store.course(id) else { return ["Courses"] }
-            return ["Courses", c.displayName, tab.title]
-        case .material(let id): return ["Study", store.material(id)?.title ?? "Material"]
-        case .study(let s): return ["Study", s.title]
-        case .connections(let k): return ["Connections"] + (k.map { [$0.title] } ?? [])
-        case .review, .activity, .setup, .settings: return []
+            return [c.displayName, tab.title]
+        case .topic(let id):
+            guard let t = store.topic(id) else { return ["Topic"] }
+            return [store.course(t.courseId)?.displayName ?? "", t.title]
+        case .material(let id):
+            guard let m = store.material(id) else { return ["File"] }
+            return [m.courseId.flatMap { store.course($0)?.displayName } ?? "Files", m.title]
+        case .setup, .settings: return []
         }
     }
 
@@ -354,18 +341,40 @@ final class AppModel {
             DispatchQueue.main.async {
                 self.progress = nil
                 self.refresh()
-                let imported = results.compactMap { if case .imported(_, let t) = $0 { return t }; return nil }
+                let importedIds = results.compactMap { if case .imported(let id, _) = $0 { return id }; return nil }
                 let dups = results.compactMap { if case .duplicate(_, let t) = $0 { return t }; return nil }
                 let failed = results.compactMap { if case .failed(let m) = $0 { return m }; return nil }
                 var parts: [String] = []
-                if imported.count == 1 { parts.append("\(imported[0]) is in the Inbox.") } else if imported.count > 1 { parts.append("\(imported.count) files are in the Inbox.") }
+                if !importedIds.isEmpty { parts.append(self.filedSummary(importedIds)) }
                 if !dups.isEmpty { parts.append("\(dups.count == 1 ? "\"\(dups[0])\" is" : "\(dups.count) files are") already in your library.") }
                 if !failed.isEmpty { parts.append(failed.count == 1 ? failed[0] : "\(failed.count) files could not be read.") }
-                self.show(parts.joined(separator: " "), error: imported.isEmpty && !failed.isEmpty)
+                self.show(parts.joined(separator: " "), error: importedIds.isEmpty && !failed.isEmpty)
                 self.enrichPendingImages()
-                if self.store.boolSetting("auto_process") { self.jobs.autoProcessReady() }
+                self.jobs.readNewFiles()
             }
         }
+    }
+
+    /// Where new files went: "Tutorial 3 is in HM210 as practice problems." / "5 files filed: 3 in HM210, 2 in FIN220.
+    /// 1 needs a course."
+    func filedSummary(_ ids: [Int]) -> String {
+        let files = ids.compactMap { store.material($0) }
+        let courses = store.courseMap()
+        let unfiled = files.filter { $0.courseId == nil }.count
+        let byCourse = Dictionary(grouping: files.compactMap { m in m.courseId.flatMap { courses[$0]?.displayName } }, by: { $0 })
+        var text: String
+        if files.count == 1, let m = files.first {
+            if let c = m.courseId.flatMap({ courses[$0]?.displayName }) {
+                text = m.group == .notUsed ? "\(m.title) is in \(c), set aside as not used." : "\(m.title) is in \(c) as \(m.role.label.lowercased())."
+            } else {
+                text = "\(m.title) needs a course."
+            }
+        } else {
+            let filed = byCourse.sorted { $0.value.count > $1.value.count }.map { "\($0.value.count) in \($0.key)" }
+            text = filed.isEmpty ? "" : "\(files.count - unfiled) files filed: " + filed.joined(separator: ", ") + "."
+            if unfiled > 0 { text += (text.isEmpty ? "" : " ") + "\(unfiled) need\(unfiled == 1 ? "s" : "") a course." }
+        }
+        return text
     }
 
     /// OCR of pictures inside slides runs in the background after import so the import itself stays fast.
@@ -475,8 +484,8 @@ final class AppModel {
 
     /// A free chat about the student's courses, on the default engine.
     func newChat() {
-        guard let ref = ai.engine(for: .explain) ?? ai.engineOptions().first(where: { !$0.ref.isCLI })?.ref else {
-            show("Turn on an AI engine first.", error: true, link: ("Settings", .connections(.ai)))
+        guard let ref = ai.engine(for: .checkDraft) ?? ai.engineOptions().first(where: { !$0.ref.isCLI })?.ref else {
+            show("Turn on an AI engine first.", error: true, link: ("Settings", .settings(.ai)))
             return
         }
         do { chat = try ChatController.newChat(model: self, engine: ref) } catch { fail(error) }
@@ -484,35 +493,27 @@ final class AppModel {
 
     /// Opens the AI app handoffs go to (Claude Desktop by default).
     func openAIApp() {
-        if let app = ai.handoffApp { ai.open(app) } else { go(.connections(.ai)) }
+        if let app = ai.handoffApp { ai.open(app) } else { go(.settings(.ai)) }
     }
 
     // MARK: Review
 
-    func startReview(courseId: Int? = nil) {
-        let cards = store.reviewQueue(courseId: courseId, limit: 20)
-        guard !cards.isEmpty else { show("No cards are due. Nice."); return }
-        review = ReviewSession(cards: cards, courseId: courseId, sessionId: try? store.startSession(kind: "review", courseId: courseId, materialId: nil))
-    }
-
-    // MARK: Cornell sheet
-
-    func exportSheet(_ note: Note, print: Bool) {
-        guard let sheet = CornellSheet.decode(note.dataJson) else { return }
-        let paper = PaperSize(rawValue: store.setting("paper_size") ?? "a4") ?? .a4
-        let data = CornellRenderer.pdf(sheet, paper: paper)
-        let name = Slug.make("\(sheet.courseCode) \(sheet.materialTitle) - Cornell") + ".pdf"
-        let url = store.paths.export.appendingPathComponent(name)
+    /// Starts a session (or continues the unfinished one a suggestion points at). It takes the whole window.
+    func startSession(_ pick: SessionPick, mode: SessionMode = .standard) {
         do {
-            try data.write(to: url)
-            if let vault = store.setting("obsidian_vault_path"), !vault.isEmpty {
-                let dir = URL(fileURLWithPath: vault).appendingPathComponent("Study Tracker/\(Slug.make(sheet.courseCode))")
-                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                try? sheet.obsidianMarkdown.write(to: dir.appendingPathComponent(Slug.make(sheet.title) + ".md"), atomically: true, encoding: .utf8)
-            }
-            if print { PDFPrinter.print(url: url) } else { NSWorkspace.shared.open(url) }
+            let s = try store.beginSession(pick, mode: mode)
+            if pick.kind == .topic, let t = s.topicId, store.lesson(topicId: t) == nil { jobs.requestLesson(topicId: t) }
+            session = SessionController(session: s, model: self)
+            refresh()
         } catch { fail(error) }
     }
+
+    /// "Just review": due cards only, as a session.
+    func startReview(courseId: Int? = nil) {
+        guard !store.reviewQueue(courseId: courseId, limit: 1).isEmpty else { show("No cards are due. Nice."); return }
+        startSession(SessionPick(kind: .review, courseId: courseId, minutes: 10, score: 1))
+    }
+
 }
 
 

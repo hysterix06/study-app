@@ -3,7 +3,7 @@ import StudyCore
 import StudyAI
 import StudyMCPCore
 
-/// One conversation in the app's chat panel: recall, quiz, Feynman, draft check, practice, handwriting review, or a
+/// One conversation in the app's chat panel: the tutor in a session, a draft check, or a
 /// free question. It runs the agent loop on the chosen engine with Study Tracker's tools, and keeps the transcript on
 /// this Mac only.
 @MainActor
@@ -28,6 +28,8 @@ final class ChatController: Identifiable {
     private(set) var engine: EngineRef
     let task: AITask?
     let jobId: Int?
+    /// A tutor chat's topic: it reads that topic and its slides, and saves nothing.
+    let tutorTopicId: Int?
     private(set) var entries: [Entry] = []
     private(set) var streaming = ""
     private(set) var isRunning = false
@@ -50,8 +52,10 @@ final class ChatController: Identifiable {
         self.engine = EngineRef(string: chat.engine) ?? EngineRef(Catalog.appleOnDevice.id)
         self.task = chat.task
         self.jobId = chat.jobId
+        self.tutorTopicId = chat.args["tutor_topic"].flatMap { Int($0) }
         let stored = model.store.chatMessages(id)
-        var conv: [ChatMessage] = [.system(Prompts.studyRules + "\n\n" + Self.chatNote)]
+        let tutor = tutorTopicId.map { Self.tutorNote(topicId: $0, step: chat.args["step"], store: model.store) } ?? ""
+        var conv: [ChatMessage] = [.system(Prompts.studyRules + "\n\n" + Self.chatNote + tutor)]
         for m in stored {
             let hidden = m.dataJson?.contains("\"hidden\"") ?? false
             switch m.role {
@@ -73,9 +77,10 @@ final class ChatController: Identifiable {
         let store = model.store
         if let existing = store.chat(forJob: jobId) { return ChatController(id: existing.id, model: model, chat: existing) }
         guard let job = store.job(jobId) else { throw AIError.badResponse("That job no longer exists.") }
+        guard let template = job.task.prompt else { throw AIError.unavailable("\(job.task.label) isn't a conversation.") }
         var args = job.args
         args["job_id"] = "\(jobId)"
-        let prompt = try Prompts.render(job.task.prompt, args: args, store: store)
+        let prompt = try Prompts.render(template, args: args, store: store)
         let engine = job.engine ?? model.ai.engine(for: job.task)?.string ?? Catalog.appleOnDevice.id
         let chatId = try store.createChat(task: job.task, args: job.args, objectKind: job.objectKind, objectId: job.objectId, jobId: jobId, title: job.label, engine: engine)
         try store.appendChatMessage(chatId, role: "user", text: prompt, dataJson: #"{"hidden":true}"#)
@@ -86,6 +91,31 @@ final class ChatController: Identifiable {
 
     static func open(chat chatId: Int, model: AppModel) -> ChatController? {
         model.store.chat(chatId).map { ChatController(id: chatId, model: model, chat: $0) }
+    }
+
+    /// The tutor in a session: it knows the topic and the step the student is on.
+    static func tutor(topicId: Int, step: SessionStep, model: AppModel) throws -> ChatController {
+        guard let ref = model.ai.candidates(for: .explainFeedback).first(where: { !$0.isCLI }) else {
+            throw AIError.unavailable("The tutor needs a stronger free model than the one on this Mac: sign in with OpenRouter (free) in Settings › AI.")
+        }
+        let title = "Tutor · " + (model.store.topic(topicId)?.title ?? "")
+        let chatId = try model.store.createChat(task: nil, args: ["tutor_topic": "\(topicId)", "step": step.rawValue], objectKind: "topic", objectId: topicId,
+                                                jobId: nil, title: title, engine: ref.string)
+        return ChatController(id: chatId, model: model, chat: model.store.chat(chatId)!)
+    }
+
+    static let tutorTools: Set<String> = ["get_topic", "get_path", "get_chunks", "get_slide_images", "get_practice"]
+
+    static func tutorNote(topicId: Int, step: String?, store: StudyStore) -> String {
+        guard let t = store.topic(topicId) else { return "" }
+        let number = store.topicNumbers(courseId: t.courseId)[t.id].map { "\($0) " } ?? ""
+        return """
+
+        You are the student's tutor for \(number)"\(t.title)" (topic_id \(t.id)) in \(store.course(t.courseId)?.displayName ?? "their course"). \
+        They're on the \(SessionStep(rawValue: step ?? "")?.title.lowercased() ?? "learn") step of a study session. Call get_topic for its \
+        objectives, notebook page, lesson and the course's own slides. Explain simply, one idea at a time, and check they follow. \
+        If they ask about a practice problem, give a hint first; show a full solution only after they've tried.
+        """
     }
 
     /// A free question with no task attached ("Ask about my courses").
@@ -128,7 +158,8 @@ final class ChatController: Identifiable {
             guard let self else { return }
             do {
                 let provider = try model.ai.provider(engine)
-                let base = try MCPToolHost(paths: model.store.paths, allowed: self.task?.toolNames ?? AITask.freeChatTools, blocked: ["log_review"], jobId: jobId)
+                let allowed = self.tutorTopicId != nil ? Self.tutorTools : self.task?.toolNames ?? AITask.freeChatTools
+                let base = try MCPToolHost(paths: model.store.paths, allowed: allowed, blocked: ["log_review"], jobId: jobId)
                 let host = ChatToolHost(base: base, chat: self)
                 let meter = StoreUsageMeter(store: model.store, jobId: jobId, chatId: id)
                 let modelId = engine.model ?? provider.descriptor.suggestedModel ?? "system"
@@ -227,7 +258,6 @@ final class ChatController: Identifiable {
         case "get_slide_images": return "Looked at the slides' pictures"
         case "get_concepts": return "Checked the concepts"
         case "get_questions", "get_review_queue": return "Picked questions"
-        case "get_handwriting_captures": return "Read your handwritten notes"
         case "list_assignments", "get_grade_summary": return "Checked your assignments"
         case "list_materials": return "Looked through your materials"
         case "get_notes": return "Read your notes"

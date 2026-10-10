@@ -204,35 +204,20 @@ final class AIEngineTests: XCTestCase {
 
     func host(blocked: Set<String> = [], jobId: Int? = nil) throws -> MCPToolHost { try MCPToolHost(paths: store.paths, blocked: blocked, jobId: jobId) }
 
-    func lectureJSON(_ ids: [Int], bogus: Int = 999_999) -> String {
-        """
-        {"concepts":[
-          {"name":"Overbooking","definition":"Selling more rooms than exist.","importance":1,"source_chunk_ids":[\(ids[0])],"links":[{"to_name":"No-show rate","relation":"prerequisite"}]},
-          {"name":"No-show rate","definition":"Share of bookings that don't arrive.","importance":2,"source_chunk_ids":[\(ids[1])],"links":[]},
-          {"name":"Invented","definition":"Not in the material.","importance":1,"source_chunk_ids":[\(bogus)],"links":[]}],
-         "questions":[{"kind":"recall","prompt":"What is overbooking?","answer_key":"Selling more rooms than exist.","concept_name":"Overbooking","source_chunk_ids":[\(ids[0])],"difficulty":1}],
-         "cards":[{"front":"Overbooking?","back":"Selling more rooms than exist.","concept_name":"Overbooking","source_chunk_ids":[\(ids[0])]}]}
-        """
-    }
-
-    func sheetJSON(_ ids: [Int]) -> String {
-        let cues = (1...8).map { #"{"text":"Cue \#($0)?","kind":"question","source_chunk_ids":[\#(ids[$0 % ids.count])]}"# }.joined(separator: ",")
-        return #"{"cues":[\#(cues)],"summary_prompt":"Why overbook?","hardest_topics":["No-show forecasting: needs data"]}"#
-    }
-
     func testToolHostInjectsJobIdHidesItAndBlocksRatings() async throws {
-        let job = try store.enqueueJob(.process, args: ["material_id": "\(materialId!)"], objectKind: "material", objectId: materialId, label: "x", mode: .automatic, engine: "test|m")
+        let job = try store.enqueueJob(.sortFiles, args: ["material_ids": "\(materialId!)"], objectKind: "material", objectId: materialId, label: "x", mode: .automatic, engine: "test|m")
         let h = try host(blocked: ["log_review"], jobId: job)
         let specs = h.specs()
         XCTAssertFalse(specs.contains { $0.name == "log_review" })
-        XCTAssertNil(specs.first { $0.name == "save_concepts" }?.parameters["properties"]?["job_id"])
+        XCTAssertNil(specs.first { $0.name == "set_material_use" }?.parameters["properties"]?["job_id"])
         let blocked = await h.call("log_review", ["card_id": 1, "rating": 4])
         XCTAssertTrue(blocked.isError)
         XCTAssertTrue(blocked.text.contains("student"))
-        let saved = await h.callJSON("save_concepts", ["material_id": materialId!, "concepts": [["name": "Overbooking", "definition": "x", "importance": 1, "source_chunk_ids": [chunkIds[0]]]]])
+        let saved = await h.callJSON("set_material_use", ["material_id": materialId!, "role": "lecture", "confidence": 0.9, "reason": "Slides."])
         XCTAssertTrue(saved.ok, saved.text)
-        XCTAssertEqual(store.job(job)?.results["save_concepts"], 1, "write attached to the job")
-        XCTAssertEqual(store.recentAudit(actor: "ai", limit: 5).first?.action, "save_concepts", "audited as the built-in AI")
+        XCTAssertEqual(store.job(job)?.results["set_material_use"], 1, "write attached to the job")
+        XCTAssertTrue(store.recentAudit(actor: "ai", limit: 5).contains { $0.action == "sort_file" }, "audited as the built-in AI")
+        XCTAssertEqual(store.job(job)?.state, .done, "the finishing write finished the job")
     }
 
     func testAgentLoopRunsToolsAndKeepsProposalsUnconfirmed() async throws {
@@ -265,53 +250,63 @@ final class AIEngineTests: XCTestCase {
         XCTAssertEqual(p.requests.count, 3)
     }
 
-    func testLecturePipelineSavesOnlyCitedItems() async throws {
-        let ids = chunkIds
-        let p = ScriptedProvider(descriptor: testDescriptor(), replies: [
-            { [self] _ in ChatResponse(text: lectureJSON(ids)) },
-            { [self] _ in ChatResponse(text: "```json\n" + sheetJSON(ids) + "\n```") },
-        ])
-        let report = try await Pipelines(provider: p, model: "m", host: try host(), store: store).processLecture(materialId: materialId)
-        XCTAssertEqual(p.requests.count, 2, "one section plus the sheet")
-        XCTAssertNotNil(p.requests[0].responseSchema)
-        XCTAssertEqual(report.counts["concepts"], 2)
-        XCTAssertEqual(report.counts["sheets"], 1)
-        XCTAssertTrue(report.warnings.contains { $0.contains("Invented") }, "uncited concept reported, not saved")
-        let names = Set(store.concepts(materialId: materialId).map(\.name))
-        XCTAssertEqual(names, ["Overbooking", "No-show rate"])
-        XCTAssertNotNil(store.material(materialId)?.processedAt)
-        XCTAssertTrue(report.summary.contains("No-show forecasting"))
+    func testSortingNeverTouchesTheStudentsFilesAndAsksWhenUnsure() async throws {
+        let notes = FixtureFactory.textPDF(pages: ["Week 2 notes, written up after class for revision of the main ideas."], name: "doc_1.pdf")
+        let handout = FixtureFactory.textPDF(pages: ["A handout with assorted bits that could be anything at all, really."], name: "doc_2.pdf")
+        guard case .imported(let a, _) = store.importMaterial(from: notes, courseId: ids.hm),
+              case .imported(let b, _) = store.importMaterial(from: handout, courseId: ids.hm) else { return XCTFail() }
+        try store.updateMaterial(materialId, role: .reading)
+        let p = ScriptedProvider(descriptor: testDescriptor(), replies: [{ r in
+            XCTAssertTrue(r.messages.last!.text.contains("doc_1.pdf"))
+            XCTAssertFalse(r.messages.last!.text.contains("Overbooking"), "a file the student sorted isn't sent")
+            return ChatResponse(text: #"{"files":[{"n":1,"role":"lecture","confidence":0.9,"reason":"Class notes."},{"n":2,"role":"other","confidence":0.4,"reason":"Unclear."}]}"#)
+        }])
+        let report = try await Pipelines(provider: p, model: "m", host: try host(), store: store).sortFiles(materialIds: [a, b, materialId])
+        XCTAssertEqual(report.counts["files"], 2)
+        XCTAssertEqual(store.material(a)?.roleSource, "ai")
+        XCTAssertEqual(store.material(materialId)?.role, .reading, "the student's choice stays")
+        XCTAssertTrue(store.needsLook().contains { $0.kind == .unsureFile && $0.objectId == b }, "unsure: the student is asked")
+        XCTAssertEqual(p.requests.count, 1, "up to eight files in one request")
     }
 
-    func testSmallContextSplitsIntoSectionsAndMerges() async throws {
-        let ids = chunkIds
-        let p = ScriptedProvider(descriptor: testDescriptor(context: 4_000), replies: [])
-        p.replies = (0..<10).map { _ in { [self] r in
-            if r.responseSchema?.name == "cornell_sheet" { return ChatResponse(text: sheetJSON(ids)) }
-            return ChatResponse(text: lectureJSON(ids))
-        } }
-        // Make each chunk big enough that a 4k model needs one section per slide.
-        _ = try store.db.execute("UPDATE chunks SET token_estimate = 1500 WHERE material_id = ?", [materialId!])
-        let report = try await Pipelines(provider: p, model: "m", host: try host(), store: store).processLecture(materialId: materialId)
-        XCTAssertEqual(p.requests.count, 4, "three sections plus the sheet")
-        XCTAssertEqual(report.counts["concepts"], 2, "the same concept from several sections is merged")
+    func testPracticeLabelsKeepTheProblemTextWordForWord() async throws {
+        let sheet = FixtureFactory.textPDF(pages: ["Exercise 1: Calculate RevPAR when ADR is 120 and occupancy is 80%.\nExercise 2: Explain why hotels overbook rooms."],
+                                           name: "Tutorial 2.pdf")
+        guard case .imported(let t, _) = store.importMaterial(from: sheet, courseId: ids.hm) else { return XCTFail() }
+        let items = store.practiceItems(materialId: t)
+        XCTAssertEqual(items.count, 2, "split without any AI")
+        let p = ScriptedProvider(descriptor: testDescriptor(), replies: [{ _ in ChatResponse(text: """
+            {"items":[{"id":\(items[0].id),"kind":"calculate","difficulty":1,"topic":"RevPAR","marks":-1},
+                      {"id":\(items[1].id),"kind":"explain","difficulty":2,"topic":"Overbooking","marks":-1},
+                      {"id":999999,"kind":"essay","difficulty":3,"topic":"Invented","marks":5}]}
+            """) }])
+        let report = try await Pipelines(provider: p, model: "m", host: try host(), store: store).labelPractice(materialId: t)
+        XCTAssertEqual(report.counts["problems"], 2)
+        let labelled = store.practiceItems(materialId: t)
+        XCTAssertEqual(labelled.map(\.kind), ["calculate", "explain"])
+        XCTAssertEqual(labelled.map(\.topicLabel), ["RevPAR", "Overbooking"])
+        XCTAssertEqual(labelled.map(\.promptMd), items.map(\.promptMd), "the text never changes")
+        XCTAssertTrue(store.filesWithUnlabelledPractice().isEmpty)
     }
 
     func testRateLimitIsRetried() async throws {
-        let ids = chunkIds
+        let notes = FixtureFactory.textPDF(pages: ["General remarks that say nothing about what kind of document this is."], name: "doc_9.pdf")
+        guard case .imported(let a, _) = store.importMaterial(from: notes, courseId: ids.hm) else { return XCTFail() }
         let p = ScriptedProvider(descriptor: testDescriptor(), replies: [
             { _ in throw AIError.rateLimited(retryAfter: 0.01) },
-            { [self] _ in ChatResponse(text: lectureJSON(ids)) },
-            { [self] _ in ChatResponse(text: sheetJSON(ids)) },
+            { _ in ChatResponse(text: #"{"files":[{"n":1,"role":"reading","confidence":0.8,"reason":"An article."}]}"#) },
         ])
-        let report = try await Pipelines(provider: p, model: "m", host: try host(), store: store).processLecture(materialId: materialId)
-        XCTAssertEqual(report.counts["concepts"], 2)
+        let report = try await Pipelines(provider: p, model: "m", host: try host(), store: store).sortFiles(materialIds: [a])
+        XCTAssertEqual(report.counts["files"], 1)
+        XCTAssertEqual(store.material(a)?.role, .reading)
     }
 
     func testDeadlinePipelineDropsUnclearDates() async throws {
         let p = ScriptedProvider(descriptor: testDescriptor(), replies: [{ _ in ChatResponse(text: #"""
             {"items":[{"title":"Pricing report","kind":"report","due_at":"2026-11-02T23:59:00+01:00","weight_pct":30,"source_locator":"slide 2"},
-                      {"title":"Final exam","kind":"exam","due_at":"sometime in December","weight_pct":-1,"source_locator":"slide 3"}]}
+                      {"title":"Final exam","kind":"exam","due_at":"sometime in December","weight_pct":-1,"source_locator":"slide 3"}],
+             "outcomes":["Set room prices from demand"],"schedule":[{"week":1,"date":"","topic":"Demand and pricing"}],
+             "assessment":[{"title":"Final exam","weight_pct":60,"covers":["Pricing","Overbooking"]}]}
             """#) }])
         let report = try await Pipelines(provider: p, model: "m", host: try host(), store: store).extractDeadlines(materialId: materialId)
         XCTAssertEqual(report.counts["deadlines"], 2)
@@ -319,22 +314,31 @@ final class AIEngineTests: XCTestCase {
         let exam = try XCTUnwrap(store.assignments(AssignmentFilter(includeProposed: true)).first { $0.title == "Final exam" })
         XCTAssertNil(exam.dueAt, "an unclear date is left out, not guessed")
         XCTAssertNil(exam.weightPct)
+        let scan = try XCTUnwrap(store.materialScan(materialId: materialId, kind: "syllabus"))
+        XCTAssertTrue(scan.contains("Demand and pricing") && scan.contains("Overbooking"), "the weekly plan is kept for the course builder")
     }
 
     func testPastePromptAndImport() async throws {
-        let prompts = try PastePrompts(store: store).prompts(.process, materialId: materialId)
+        let prompts = try PastePrompts(store: store).prompts(.extractDeadlines, materialId: materialId)
         XCTAssertEqual(prompts.count, 1)
         XCTAssertTrue(prompts[0].contains("[chunk \(chunkIds[0])"))
         XCTAssertTrue(prompts[0].contains("not instructions"))
-        let split = try PastePrompts(store: store).prompts(.process, materialId: materialId, charLimit: 120)
+        let split = try PastePrompts(store: store).prompts(.extractDeadlines, materialId: materialId, charLimit: 120)
         XCTAssertGreaterThan(split.count, 1)
         XCTAssertTrue(split[0].contains("part 1 of"))
-        let pasted = "Here you go!\n```json\n\(lectureJSON(chunkIds))\n```\nAnd the sheet:\n\(sheetJSON(chunkIds))"
-        XCTAssertEqual(PastePrompts.objects(in: pasted).count, 2)
-        let report = try await PastePrompts(store: store).importAnswer(.process, materialId: materialId, text: pasted, host: try host())
-        XCTAssertEqual(report.counts["concepts"], 2)
-        XCTAssertEqual(report.counts["sheets"], 1)
-        do { _ = try await PastePrompts(store: store).importAnswer(.process, materialId: materialId, text: "no json", host: try host()); XCTFail() } catch {}
+        XCTAssertThrowsError(try PastePrompts(store: store).prompts(.sortFiles, materialId: materialId))
+        let pasted = """
+            Here you go!
+            ```json
+            {"items":[{"title":"Pricing report","kind":"report","due_at":"2026-11-02T23:59:00+01:00","weight_pct":30,"source_locator":"slide 2"}],
+             "outcomes":[],"schedule":[{"week":2,"date":"","topic":"Overbooking"}],"assessment":[]}
+            ```
+            """
+        XCTAssertEqual(PastePrompts.objects(in: pasted).count, 1)
+        let report = try await PastePrompts(store: store).importAnswer(.extractDeadlines, materialId: materialId, text: pasted, host: try host())
+        XCTAssertEqual(report.counts["deadlines"], 1)
+        XCTAssertNotNil(store.materialScan(materialId: materialId, kind: "syllabus"))
+        do { _ = try await PastePrompts(store: store).importAnswer(.extractDeadlines, materialId: materialId, text: "no json", host: try host()); XCTFail() } catch {}
     }
 
     func testUsageMeterEnforcesMonthlyCap() throws {
@@ -376,11 +380,13 @@ final class AIEngineTests: XCTestCase {
 
     func testTaskFit() {
         let small = ModelInfo(id: "s", contextTokens: 8_192, tools: true, vision: false)
-        XCTAssertEqual(TaskFit.of(.quiz, model: ModelInfo(id: "t", tools: false), providerId: "x").isUsable, false)
-        if case .basic = TaskFit.of(.process, model: small, providerId: "apple.ondevice") {} else { XCTFail() }
-        if case .basic = TaskFit.of(.reviewNotes, model: small, providerId: "x") {} else { XCTFail() }
-        XCTAssertEqual(TaskFit.of(.process, model: nil, providerId: "cli.claude"), .good)
-        XCTAssertFalse(TaskFit.of(.quiz, model: nil, providerId: "cli.claude").isUsable)
+        let tiny = ModelInfo(id: "t", contextTokens: 2_048, tools: true)
+        XCTAssertEqual(TaskFit.of(.checkDraft, model: ModelInfo(id: "t", tools: false), providerId: "x").isUsable, false, "conversations need tools")
+        if case .basic = TaskFit.of(.sortFiles, model: small, providerId: "apple.ondevice") {} else { XCTFail() }
+        XCTAssertFalse(TaskFit.of(.sortFiles, model: tiny, providerId: "x").isUsable, "too small")
+        XCTAssertTrue(TaskFit.of(.extractPractice, model: ModelInfo(id: "p", tools: false), providerId: "x").isUsable, "pipelines don't need tools")
+        XCTAssertFalse(TaskFit.of(.sortFiles, model: nil, providerId: "cli.claude").isUsable, "Claude Code is kept for building courses")
+        XCTAssertFalse(TaskFit.of(.process, model: small, providerId: "x").isUsable, "retired")
     }
 }
 
@@ -463,7 +469,14 @@ extension MCPTests {
         XCTAssertEqual(store.mcpClients().first?.name, "ModernClient")
 
         let list = server.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": ["_meta": ["io.modelcontextprotocol/protocolVersion": "2026-07-28"]]])!
-        XCTAssertNotNil((list["result"] as? [String: Any])?["tools"], "modern requests work without initialize")
+        let listed = list["result"] as? [String: Any]
+        XCTAssertNotNil(listed?["tools"], "modern requests work without initialize")
+        XCTAssertEqual(listed?["ttlMs"] as? Int, 3_600_000, "modern clients reject lists without a cache lifetime")
+        XCTAssertEqual(listed?["cacheScope"] as? String, "private")
+        let prompts = server.handle(["jsonrpc": "2.0", "id": 4, "method": "prompts/list", "params": ["_meta": ["io.modelcontextprotocol/protocolVersion": "2026-07-28"]]])!
+        XCTAssertNotNil((prompts["result"] as? [String: Any])?["ttlMs"])
+        let legacy = server.handle(["jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": [:]])!
+        XCTAssertNil((legacy["result"] as? [String: Any])?["ttlMs"], "legacy lists keep the legacy shape")
 
         let bad = server.handle(["jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": ["_meta": ["io.modelcontextprotocol/protocolVersion": "2099-01-01"]]])!
         let err = bad["error"] as! [String: Any]
@@ -482,16 +495,19 @@ extension MCPTests {
     }
 
     func testTaskInstructionsForAJob() throws {
-        let job = try store.enqueueJob(.process, args: ["material_id": "\(materialId!)"], objectKind: "material", objectId: materialId, label: "x", mode: .desktop)
+        let job = try store.enqueueJob(.extractDeadlines, args: ["material_id": "\(materialId!)"], objectKind: "material", objectId: materialId, label: "x", mode: .desktop)
         try store.setJobState(job, .handedOff)
         let r = call("get_task_instructions", ["job": job])
         XCTAssertFalse(r.isError, "\(String(describing: r.json))")
         let text = (r.json as? [String: Any])?["instructions"] as? String ?? ""
         XCTAssertTrue(text.contains("job_id: \(job)"))
-        XCTAssertTrue(text.contains("get_material(\(materialId!))"))
+        XCTAssertTrue(text.contains("save_material_scan"))
         try store.setJobState(job, .done)
         XCTAssertTrue(call("get_task_instructions", ["job": job]).isError, "finished jobs aren't re-run")
-        XCTAssertFalse(call("get_task_instructions", ["task": "weekly_plan"]).isError)
+        XCTAssertFalse(call("get_task_instructions", ["task": "extract_deadlines", "material_id": materialId!]).isError)
+        XCTAssertTrue(call("get_task_instructions", ["task": "sort_files"]).isError, "app-only tasks have no AI-app instructions")
+        let old = try store.enqueueJob(.process, args: [:], objectKind: nil, objectId: nil, label: "old", mode: .desktop)
+        XCTAssertTrue(call("get_task_instructions", ["job": old]).isError, "retired tasks aren't run")
     }
 
     /// The 2026-07-28 spec rejects loose schemas; check every tool's schema is well-formed JSON Schema.
@@ -531,7 +547,14 @@ final class CLIRunnerTests: XCTestCase {
 
     func testFriendlyErrors() {
         if case .auth = CLIRunner.friendly("Invalid API key · Please run /login") {} else { XCTFail() }
-        if case .quotaExhausted = CLIRunner.friendly("Claude AI usage limit reached|1790000000") {} else { XCTFail() }
+        if case .quotaExhausted(_, let reset) = CLIRunner.friendly("Claude AI usage limit reached|1790000000") {
+            XCTAssertEqual(reset, Date(timeIntervalSince1970: 1_790_000_000))
+        } else { XCTFail() }
+        let now = ISO.parse("2026-10-07T18:53:00Z")!   // 20:53 in Madrid
+        if case .quotaExhausted(_, let reset) = CLIRunner.friendly("You've hit your session limit · resets 10:40pm (Europe/Madrid)", now: now) {
+            XCTAssertEqual(reset, ISO.parse("2026-10-07T20:40:00Z"), "the next 22:40 in Madrid")
+        } else { XCTFail("a session limit is a plan limit") }
+        XCTAssertEqual(CLIRunner.resetTime(in: "resets 3am (Europe/Madrid)", now: now), ISO.parse("2026-10-08T01:00:00Z"))
     }
 }
 

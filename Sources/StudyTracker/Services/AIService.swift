@@ -70,6 +70,44 @@ final class AIService {
         Catalog.available(in: edition).filter { $0.id != Catalog.applePCC.id || edition.isSandboxed }
     }
 
+    /// The model an engine runs: the student's pick, the catalog's suggestion, or OpenRouter's best free model. Nil
+    /// when nothing is known yet (a local server or OpenRouter before its model list loads): such an engine can't run.
+    func model(for d: ProviderDescriptor) -> String? {
+        if d.isApple { return nil }
+        return settings.model(forProvider: d.id) ?? d.suggestedModel
+            ?? (d.id == Catalog.openRouter.id ? Catalog.bestFreeModel(settings.descriptor(d.id)?.models ?? [])?.id : nil)
+            ?? settings.cachedModels(d.id).first?.id
+    }
+
+    /// Engines that can run right now, with what their models can do, for the resolver and the pickers.
+    func readyEngines() -> [EngineCandidate] {
+        providers.filter { status($0).isReady }.compactMap { d -> EngineCandidate? in
+            let model = self.model(for: d)
+            if !d.isApple && model == nil { return nil }
+            let info = model.flatMap { settings.descriptor(d.id)?.model($0) } ?? d.models.first
+            return EngineCandidate(ref: EngineRef(d.id, model: model), free: d.runsLocally || d.isApple || (info?.free ?? false),
+                                   contextTokens: info?.contextTokens ?? 32_000, tools: info?.tools ?? true,
+                                   appleOnDevice: d.id == Catalog.appleOnDevice.id, appleCloud: d.id == Catalog.applePCC.id,
+                                   local: d.runsLocally && !d.isApple, strong: d.id == Catalog.anthropic.id)
+        }
+    }
+
+    /// Free daily allowances already used up today.
+    var exhaustedProviders: Set<String> {
+        store.aiRequestsToday(provider: Catalog.openRouter.id) >= settings.openRouterFreePerDay ? [Catalog.openRouter.id] : []
+    }
+
+    func resolverInputs() -> EngineResolver.Inputs {
+        EngineResolver.Inputs(ready: readyEngines(), cliAvailable: claudeCLI() != nil && mcpBinary != nil, everyday: settings.everyday,
+                              builder: settings.builder, allowPaidEveryday: settings.allowPaidEveryday, exhausted: exhaustedProviders)
+    }
+
+    /// The engines a task tries, best first. The job runner moves down the list when one fails.
+    func candidates(for task: AITask) -> [EngineRef] { EngineResolver.candidates(for: task, resolverInputs()) }
+
+    /// The engine a task starts on.
+    func engine(for task: AITask) -> EngineRef? { candidates(for: task).first }
+
     struct EngineOption: Identifiable, Hashable {
         var ref: EngineRef
         var title: String
@@ -79,34 +117,9 @@ final class AIService {
 
     /// Engines the student can pick right now: ready providers (with their model) and Claude Code.
     func engineOptions() -> [EngineOption] {
-        var out: [EngineOption] = []
-        for d in providers where status(d).isReady {
-            let s = settings
-            let model = d.isApple ? d.suggestedModel : (s.engine(forProvider: d.id) ?? d.suggestedModel ?? (d.id == Catalog.openRouter.id ? Catalog.bestFreeModel(s.descriptor(d.id)?.models ?? [])?.id : nil))
-            let ref = EngineRef(d.id, model: d.isApple ? nil : model)
-            let info = model.flatMap { s.descriptor(d.id)?.model($0) }
-            out.append(EngineOption(ref: ref, title: ref.displayName, free: d.runsLocally || d.isApple || (info?.free ?? false)))
-        }
+        var out = readyEngines().map { EngineOption(ref: $0.ref, title: $0.ref.displayName, free: $0.free) }
         if claudeCLI() != nil { out.append(EngineOption(ref: .claudeCode, title: EngineRef.claudeCode.displayName, free: false)) }
         return out
-    }
-
-    /// The engine a task runs on: the student's choice if it still works, otherwise the best free one available.
-    func engine(for task: AITask) -> EngineRef? {
-        let options = engineOptions()
-        func usable(_ ref: EngineRef) -> Bool {
-            guard options.contains(where: { $0.ref.providerId == ref.providerId }) else { return false }
-            return TaskFit.of(task, model: ref.model.flatMap { settings.descriptor(ref.providerId)?.model($0) } ?? ref.descriptor?.models.first, providerId: ref.providerId).isUsable
-        }
-        if store.setting("ai_engine.\(task.rawValue)") == "handoff" { return nil }
-        if let chosen = settings.engine(for: task) { return usable(chosen) ? chosen : nil }
-        if store.setting("ai_engine_default") == "handoff" { return nil }
-        // Nothing chosen yet: Apple's free engines first, then Claude Code for background tasks (what older versions used).
-        for id in [Catalog.applePCC.id, Catalog.appleOnDevice.id] {
-            if let o = options.first(where: { $0.ref.providerId == id }), usable(o.ref) { return o.ref }
-        }
-        if !task.conversational, claudeCLI() != nil, store.setting("claude_run_mode") != "desktop" { return .claudeCode }
-        return options.first { $0.free && usable($0.ref) }?.ref
     }
 
     func fit(_ task: AITask, _ ref: EngineRef) -> TaskFit {
@@ -114,6 +127,23 @@ final class AIService {
     }
 
     func provider(_ ref: EngineRef) throws -> LLMProvider { try factory.make(ref, edition: edition) }
+
+    /// Pipelines on the best engine for a task that runs right away, in a session (checking an answer): the next engine
+    /// is tried when one fails. Nil when no AI is set up.
+    func inline<T>(_ task: AITask, _ work: @escaping (Pipelines) async throws -> T) async throws -> T? {
+        var lastError: Error?
+        for ref in candidates(for: task).filter({ !$0.isCLI }).prefix(3) {
+            do {
+                let p = try provider(ref)
+                guard let model = ref.model ?? p.descriptor.suggestedModel else { continue }
+                let host = try MCPToolHost(paths: store.paths, allowed: [])
+                return try await work(Pipelines(provider: p, model: model, host: host, store: store, meter: StoreUsageMeter(store: store)))
+            } catch AIError.canceled { throw AIError.canceled }
+            catch { lastError = error }
+        }
+        if let lastError { throw lastError }
+        return nil
+    }
 
     /// Refreshes a provider's model list (and caches it) for pickers and capability checks.
     func refreshModels(_ d: ProviderDescriptor) async throws -> [ModelInfo] {
@@ -264,11 +294,8 @@ final class AIService {
 }
 
 extension AISettings {
-    /// The model last chosen for a provider (stored with the default or a task override).
-    func engine(forProvider id: String) -> String? {
-        if let d = defaultEngine, d.providerId == id { return d.model }
-        return AITask.allCases.compactMap { override(for: $0) }.first { $0.providerId == id }?.model
-    }
+    /// The model last chosen for a provider.
+    func engine(forProvider id: String) -> String? { model(forProvider: id) }
 }
 
 /// A one-shot HTTP listener on 127.0.0.1 that catches an OAuth redirect (`/openrouter?code=…`).

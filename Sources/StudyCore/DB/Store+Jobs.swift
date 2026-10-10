@@ -9,77 +9,198 @@ import Foundation
 /// - Desktop (handoff): the app copies the prompt (carrying the job id) and opens the student's AI app.
 ///   Handed off → Waiting → Done. MCP writes tagged with the job id attach their results.
 /// - Paste: the prompt goes to any chatbot and the JSON answer is pasted back. Handed off → Done.
-public enum AITask: String, CaseIterable, Codable {
-    case process, extractDeadlines = "extract_deadlines", examPatterns = "exam_patterns", checkDraft = "check_draft"
-    case reviewNotes = "review_notes", quiz, recall, explain, practice, weeklyPlan = "weekly_plan"
+public enum AITask: String, CaseIterable, Codable, Sendable {
+    // Files: free AI reads new files quietly in the background.
+    /// Places files the sorting rules weren't sure about.
+    case sortFiles = "sort_files"
+    /// Reads a syllabus or brief: deadlines, learning outcomes and the weekly plan.
+    case extractDeadlines = "extract_deadlines"
+    /// Labels the problems split out of a problem set or class example (kind, difficulty, topic).
+    case extractPractice = "extract_practice"
+    /// Labels the questions split out of a past exam, so marks per topic show what earns marks.
+    case extractExam = "extract_exam"
+    // Course building: the course builder (Claude) lays out each course, then writes its notebook guide unit by unit,
+    // then lessons a few topics ahead of the student. Each has a basic version free AI can run.
+    /// Lays out the course: units of numbered topics, in the best order to learn them.
+    case buildPath = "build_path"
+    /// Writes the notebook guide for one unit: the words, pictures and formulas of each topic's page.
+    case writeNotebook = "write_notebook"
+    /// Writes the lessons for a few topics.
+    case writeLessons = "write_lessons"
+    case buildPathBasic = "build_path_basic"
+    case writeNotebookBasic = "write_notebook_basic"
+    case writeLessonsBasic = "write_lessons_basic"
+    // In a session, right away (no job): advice the student may ignore. Their own rating decides.
+    /// Looks at the student's answer to a practice problem.
+    case checkAnswer = "check_answer"
+    /// Reads the student's explanation of a topic and says what's missing.
+    case explainFeedback = "explain_feedback"
+    // Conversations.
+    case checkDraft = "check_draft"
+    // Retired in v6. Kept so jobs from older versions still load; they never run.
+    case process, examPatterns = "exam_patterns", reviewNotes = "review_notes", quiz, recall, explain, practice, weeklyPlan = "weekly_plan"
+    /// A task this version doesn't know (a job from a newer or much older version).
+    case legacy
+
+    /// Tasks from before v6 (per-lecture processing, Cornell sheets, handwriting checks…), replaced by the notebook,
+    /// the path and guided sessions.
+    public var isRetired: Bool {
+        switch self {
+        case .process, .examPatterns, .reviewNotes, .quiz, .recall, .explain, .practice, .weeklyPlan, .legacy: return true
+        default: return false
+        }
+    }
+
+    /// Tasks the current version can run.
+    public static var current: [AITask] { allCases.filter { !$0.isRetired } }
 
     /// One label per task; it never changes with the engine (the engine is shown next to it).
     public var label: String {
         switch self {
-        case .process: return "Process lecture"
-        case .extractDeadlines: return "Find deadlines"
-        case .examPatterns: return "Analyse past exam"
+        case .sortFiles: return "Sort files"
+        case .extractDeadlines: return "Read syllabus"
+        case .extractPractice: return "Read practice problems"
+        case .extractExam: return "Read past exam"
+        case .buildPath: return "Lay out the course"
+        case .writeNotebook: return "Write the notebook guide"
+        case .writeLessons: return "Write lessons"
+        case .buildPathBasic: return "Lay out the course (basic)"
+        case .writeNotebookBasic: return "Write the notebook guide (basic)"
+        case .writeLessonsBasic: return "Write lessons (basic)"
+        case .checkAnswer: return "Check my answer"
+        case .explainFeedback: return "Feedback on my explanation"
         case .checkDraft: return "Check my draft"
+        case .process: return "Process lecture"
+        case .examPatterns: return "Analyse past exam"
         case .reviewNotes: return "Review my handwritten notes"
         case .quiz: return "Quiz me"
         case .recall: return "Recall session"
         case .explain: return "Explain it back"
         case .practice: return "Practice problems"
         case .weeklyPlan: return "Plan my week"
+        case .legacy: return "Older task"
         }
     }
 
-    /// Short noun phrase for Activity rows: "Processing HM210 Week 4".
+    /// Short noun phrase for status lines and job history: "Reading HM210 Syllabus".
     public var activity: String {
         switch self {
-        case .process: return "Processing"
-        case .extractDeadlines: return "Extracting deadlines from"
-        case .examPatterns: return "Finding exam patterns in"
+        case .sortFiles: return "Sorting"
+        case .extractDeadlines: return "Reading"
+        case .extractPractice: return "Reading the problems in"
+        case .extractExam: return "Reading the exam"
+        case .buildPath, .buildPathBasic: return "Laying out"
+        case .writeNotebook, .writeNotebookBasic: return "Writing the notebook guide for"
+        case .writeLessons, .writeLessonsBasic: return "Writing lessons for"
         case .checkDraft: return "Checking the draft for"
-        case .reviewNotes: return "Reviewing notes for"
-        case .quiz: return "Quiz on"
-        case .recall: return "Recall session for"
-        case .explain: return "Explaining"
-        case .practice: return "Practice problems from"
-        case .weeklyPlan: return "Planning the week"
+        default: return label
         }
     }
 
-    public var prompt: String {
+    /// The MCP prompt for running this task in an AI app or Claude Code. Background file tasks and the basic course
+    /// tasks have none: they are pipelines the app runs itself.
+    public var prompt: String? {
         switch self {
-        case .process: return "process_lecture"
         case .extractDeadlines: return "extract_deadlines"
-        case .examPatterns: return "exam_patterns"
         case .checkDraft: return "check_draft"
-        case .reviewNotes: return "review_handwriting"
-        case .quiz: return "quiz_me"
-        case .recall: return "recall_first"
-        case .explain: return "feynman_check"
-        case .practice: return "practice_problems"
-        case .weeklyPlan: return "weekly_plan"
+        case .buildPath: return "build_course_path"
+        case .writeNotebook: return "write_notebook"
+        case .writeLessons: return "write_lessons"
+        default: return nil
+        }
+    }
+
+    /// Builds a course's path, notebook guide or lessons.
+    public var isCourseBuilding: Bool { builderTier != nil }
+
+    /// What a course-building task writes: `full` (the course builder) or `basic` (free AI). A basic version never
+    /// replaces a full one.
+    public var builderTier: String? {
+        switch self {
+        case .buildPath, .writeNotebook, .writeLessons: return "full"
+        case .buildPathBasic, .writeNotebookBasic, .writeLessonsBasic: return "basic"
+        default: return nil
         }
     }
 
     /// Tasks that talk with the student run in a chat: the app's chat panel or the student's AI app.
-    public var conversational: Bool {
+    public var conversational: Bool { self == .checkDraft }
+
+    /// The engine lane: bulk work prefers the on-device model (free, private, no daily limit); work the student reads
+    /// prefers the best free model.
+    public var engineLane: EngineLane {
         switch self {
-        case .quiz, .recall, .explain, .checkDraft, .practice: return true
-        default: return false
+        case .buildPath, .writeNotebook, .writeLessons: return .builder
+        case .checkDraft, .buildPathBasic, .writeNotebookBasic, .writeLessonsBasic, .checkAnswer, .explainFeedback: return .quality
+        default: return .bulk
         }
     }
 
-    /// The MCP write that finishes the task.
+    /// Jobs in different queue lanes run side by side: building a course (even its basic version, one request per
+    /// topic) never holds up sorting new files.
+    public var queueLane: String { isCourseBuilding ? "builder" : "everyday" }
+
+    /// A smaller version to fall back on when no engine can run this task (a strong-model task → its basic version).
+    public var degradesTo: AITask? {
+        switch self {
+        case .buildPath: return .buildPathBasic
+        case .writeNotebook: return .writeNotebookBasic
+        case .writeLessons: return .writeLessonsBasic
+        default: return nil
+        }
+    }
+
+    /// Context the model needs, in tokens. Engines below it are skipped: writing for the student needs at least 8k.
+    public var minContext: Int {
+        switch self {
+        case .buildPath, .writeNotebook, .writeLessons: return 100_000
+        case .checkDraft, .buildPathBasic, .writeNotebookBasic, .writeLessonsBasic: return 8_000
+        default: return 4_000
+        }
+    }
+
+    /// Judging the student's work (checking an answer, feedback on an explanation) needs a model that reasons reliably.
+    /// Apple's on-device model is fine for sorting and reading files, but in testing it marked right answers wrong
+    /// with invented maths, so it never grades.
+    public var needsReasoning: Bool { self == .checkAnswer || self == .explainFeedback }
+
+    /// Runs as a conversation or a tool loop, so the model must support tools. Pipelines build the requests themselves.
+    public var usesTools: Bool { conversational || engineLane == .builder }
+
+    /// Lower runs first; 0 means the student is waiting for it right now.
+    public var defaultPriority: Int {
+        switch self {
+        case .checkDraft, .checkAnswer, .explainFeedback: return 0
+        case .sortFiles: return 20
+        case .extractDeadlines: return 30
+        case .extractExam: return 40
+        case .extractPractice: return 50
+        case .buildPath, .buildPathBasic: return 60
+        case .writeNotebook, .writeNotebookBasic: return 65
+        case .writeLessons, .writeLessonsBasic: return 70
+        default: return 90
+        }
+    }
+
+    /// The MCP write that finishes the task when an AI app or a tool loop runs it.
     public func isFinished(by tool: String, args: [String: Any]) -> Bool {
         switch self {
-        case .process: return tool == "mark_material_processed"
-        case .extractDeadlines: return tool == "propose_assignments"
-        case .weeklyPlan: return tool == "propose_study_blocks"
-        case .examPatterns: return tool == "save_note" && (args["kind"] as? String) == "exam_patterns"
+        case .sortFiles: return tool == "set_material_use"
+        case .extractDeadlines: return tool == "propose_assignments" || tool == "save_material_scan"
+        case .extractPractice, .extractExam: return tool == "label_practice_items"
+        case .buildPath, .buildPathBasic: return tool == "save_path"
+        // Done when every page or lesson the job asked for is written: see `builderWorkDone`.
+        case .writeNotebook, .writeNotebookBasic, .writeLessons, .writeLessonsBasic: return false
         case .checkDraft: return tool == "save_note" && (args["kind"] as? String) == "rubric_check"
-        case .reviewNotes, .quiz, .recall, .explain, .practice: return tool == "record_session"
+        default: return false
         }
     }
 }
+
+/// Which engines a task prefers. Bulk work (sorting and reading files) prefers the on-device model: free, private and
+/// with no daily limit. Work the student reads (feedback, tutoring) prefers the best free model. Course building prefers
+/// a strong model, and otherwise falls back to a basic version on free AI.
+public enum EngineLane: String, Sendable { case bulk, quality, builder }
 
 public typealias ClaudeTask = AITask
 
@@ -126,10 +247,24 @@ public struct ClaudeJob: Identifiable, Hashable {
     public var tokensIn: Int
     public var tokensOut: Int
     public var costUSD: Double?
+    /// `everyday` or `builder`: each lane runs one job at a time, so a long course build never blocks sorting files.
+    public var lane: String
+    /// Lower runs first. 0 is "the student is waiting for this".
+    public var priority: Int
+    public var attempts: Int
+    /// Engines that already failed this job, so a retry moves on to the next one.
+    public var enginesTried: [String]
+    /// Don't start before this (backing off after a rate limit).
+    public var notBefore: Date?
+    public var courseId: Int?
+
+    /// Started by the app on its own (sorting and reading new files): no toasts, and a failure that every engine shares
+    /// becomes one Needs a look row instead of an alert.
+    public var isQuiet: Bool { args["quiet"] == "1" }
 
     init(row r: Row) {
         id = r.i("id")
-        task = AITask(rawValue: r.str("task")) ?? .process
+        task = AITask(rawValue: r.str("task")) ?? .legacy
         args = (try? JSONDecoder().decode([String: String].self, from: Data(r.str("args_json").utf8))) ?? [:]
         objectKind = r.string("object_kind")
         objectId = r.int("object_id")
@@ -145,30 +280,44 @@ public struct ClaudeJob: Identifiable, Hashable {
         error = r.string("error")
         tokensIn = r.i("tokens_in"); tokensOut = r.i("tokens_out")
         costUSD = r.double("cost_usd")
+        lane = r.string("lane") ?? "everyday"; priority = r.int("priority") ?? 50; attempts = r.i("attempts")
+        enginesTried = JSON.stringArray(r.string("engines_tried")); notBefore = r.string("not_before").flatMap { ISO.parse($0) }
+        courseId = r.int("course_id")
     }
 
-    /// "Added 14 concepts · 22 cards to approve".
+    /// "Sorted 3 files · Found 2 deadlines to confirm".
     public static func summary(_ results: [String: Int]) -> String? {
-        let nouns: [(String, String, String)] = [
-            ("save_concepts", "concept", "concepts"), ("save_questions", "question", "questions"),
-            ("propose_cards", "card to approve", "cards to approve"), ("propose_assignments", "deadline to confirm", "deadlines to confirm"),
-            ("propose_study_blocks", "study block to review", "study blocks to review"), ("save_cornell_sheet", "sheet", "sheets"),
-            ("save_note", "note", "notes"), ("record_session", "session", "sessions"),
+        let phrases: [(tool: String, verb: String, one: String, many: String)] = [
+            ("save_path", "Laid out", "topic", "topics"),
+            ("save_notebook", "Wrote", "notebook page", "notebook pages"),
+            ("save_lessons", "Wrote", "lesson", "lessons"),
+            ("set_material_use", "Sorted", "file", "files"),
+            ("label_practice_items", "Labelled", "practice problem", "practice problems"),
+            ("save_practice_items", "Added", "practice problem", "practice problems"),
+            ("propose_assignments", "Found", "deadline to confirm", "deadlines to confirm"),
+            ("save_material_scan", "Read", "file", "files"),
+            ("propose_study_blocks", "Proposed", "study block", "study blocks"),
+            ("save_note", "Saved", "note", "notes"),
+            ("record_session", "Recorded", "session", "sessions"),
         ]
-        let parts = nouns.compactMap { tool, one, many -> String? in
-            guard let n = results[tool], n > 0 else { return nil }
-            return "\(n) \(n == 1 ? one : many)"
+        let parts = phrases.compactMap { p -> String? in
+            guard let n = results[p.tool], n > 0 else { return nil }
+            return "\(p.verb) \(n) \(n == 1 ? p.one : p.many)"
         }
-        return parts.isEmpty ? nil : "Added " + parts.joined(separator: " · ")
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 
 public extension StudyStore {
     @discardableResult
-    func enqueueJob(_ task: AITask, args: [String: String], objectKind: String?, objectId: Int?, label: String, mode: JobMode, engine: String? = nil) throws -> Int {
+    func enqueueJob(_ task: AITask, args: [String: String], objectKind: String?, objectId: Int?, label: String, mode: JobMode, engine: String? = nil,
+                    priority: Int? = nil, courseId: Int? = nil) throws -> Int {
         let json = String(decoding: try JSONEncoder().encode(args), as: UTF8.self)
-        let id = try db.execute("INSERT INTO claude_jobs(task, args_json, object_kind, object_id, label, mode, engine) VALUES(?,?,?,?,?,?,?)",
-                                [task.rawValue, json, objectKind, objectId, label, mode.rawValue, engine]).lastInsertId
+        let id = try db.execute("""
+            INSERT INTO claude_jobs(task, args_json, object_kind, object_id, label, mode, engine, lane, priority, course_id)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
+            """, [task.rawValue, json, objectKind, objectId, label, mode.rawValue, engine, task.queueLane, priority ?? task.defaultPriority,
+                  courseId]).lastInsertId
         audit("job_queued", entity: "job", id: id, detail: label)
         return id
     }
@@ -179,10 +328,49 @@ public extension StudyStore {
         ((try? db.query("SELECT * FROM claude_jobs ORDER BY id DESC LIMIT ?", [limit])) ?? []).map(ClaudeJob.init)
     }
 
-    /// The next job to run in the background, oldest first. Only one runs at a time.
+    /// The next job a queue lane should start: highest priority first, then oldest, skipping any that are backing off.
+    /// `maxPriority` keeps a lane to urgent work (while the student is in a session, only what they're waiting for).
+    func nextQueuedJob(lane: String, now: Date = Date(), maxPriority: Int = .max) -> ClaudeJob? {
+        (try? db.first("""
+            SELECT * FROM claude_jobs WHERE state = 'queued' AND mode = 'automatic' AND lane = ? AND priority <= ?
+              AND (not_before IS NULL OR not_before <= ?)
+            ORDER BY priority, id LIMIT 1
+            """, [lane, maxPriority, ISO.instant(now)])).flatMap { $0.map(ClaudeJob.init) }
+    }
+
+    /// The next job to run, in the single-queue style older code expects.
     func nextQueuedJob() -> ClaudeJob? {
         guard (try? db.scalarInt("SELECT count(*) FROM claude_jobs WHERE state = 'running'")) == 0 else { return nil }
-        return (try? db.first("SELECT * FROM claude_jobs WHERE state = 'queued' ORDER BY id LIMIT 1")).flatMap { $0.map(ClaudeJob.init) }
+        return nextQueuedJob(lane: "everyday") ?? nextQueuedJob(lane: "builder")
+    }
+
+    /// When the earliest backing-off job may start, so the runner can wake up for it.
+    func nextJobWake(now: Date = Date()) -> Date? {
+        (try? db.scalarString("SELECT min(not_before) FROM claude_jobs WHERE state = 'queued' AND not_before > ?", [ISO.instant(now)]))
+            .flatMap { $0 }.flatMap { ISO.parse($0) }
+    }
+
+    /// Puts a job back in the queue after a failure: on the same engine after `notBefore` (a rate limit or a dropped
+    /// connection), or right away on the next engine once `failedEngine` is ruled out.
+    func requeueJob(_ id: Int, failedEngine: String? = nil, notBefore: Date? = nil, error: String? = nil) throws {
+        if let failedEngine, let job = job(id), !job.enginesTried.contains(failedEngine) {
+            try db.execute("UPDATE claude_jobs SET engines_tried = ? WHERE id = ?", [JSON.string(job.enginesTried + [failedEngine]), id])
+        }
+        try db.execute("""
+            UPDATE claude_jobs SET state = 'queued', attempts = attempts + 1, not_before = ?, error = COALESCE(?, error) WHERE id = ?
+            """, [notBefore.map { ISO.instant($0) }, error, id])
+    }
+
+    /// Switches a job to another task (a strong-model task falling back to its basic version) and gives every engine
+    /// a fresh try.
+    func setJobTask(_ id: Int, _ task: AITask) throws {
+        try db.execute("UPDATE claude_jobs SET task = ?, lane = ?, engines_tried = '[]', not_before = NULL WHERE id = ?",
+                       [task.rawValue, task.queueLane, id])
+    }
+
+    func queuedJobCount(lane: String? = nil) -> Int {
+        (try? db.scalarInt("SELECT count(*) FROM claude_jobs WHERE state IN ('queued','running')" + (lane == nil ? "" : " AND lane = ?"),
+                           lane.map { [$0] } ?? [])) ?? 0
     }
 
     func activeJobs() -> [ClaudeJob] {
@@ -220,7 +408,7 @@ public extension StudyStore {
         let summary = ClaudeJob.summary(results)
         try db.execute("UPDATE claude_jobs SET results_json = ?, result_summary = COALESCE(?, result_summary) WHERE id = ?", [json, summary, id])
         if job.state == .handedOff { try setJobState(id, .waiting) }
-        if job.state.isActive && job.task.isFinished(by: tool, args: args) {
+        if job.state.isActive && (job.task.isFinished(by: tool, args: args) || builderWorkDone(id)) {
             try setJobState(id, .done, summary: summary)
             return true
         }
@@ -240,9 +428,24 @@ public extension StudyStore {
             """, [tokensIn, tokensOut, costUSD, costUSD, id])
     }
 
-    /// Jobs left running when the app quit can't be resumed.
-    func failInterruptedJobs() {
-        _ = try? db.execute("UPDATE claude_jobs SET state = 'failed', error = 'The app quit before the AI finished.', finished_at = ? WHERE state = 'running'",
-                            [ISO.instant(Date())])
+    /// After a relaunch: jobs that were running start again (up to six tries), and hand-offs nobody finished in a week
+    /// are closed. Retired tasks from older versions are closed too.
+    func requeueInterruptedJobs(now: Date = Date()) {
+        let stamp = ISO.instant(now)
+        _ = try? db.execute("""
+            UPDATE claude_jobs SET state = 'failed', error = 'The app quit while this was running, too many times.', finished_at = ?
+            WHERE state = 'running' AND attempts >= 5
+            """, [stamp])
+        _ = try? db.execute("UPDATE claude_jobs SET state = 'queued', attempts = attempts + 1 WHERE state = 'running' AND mode = 'automatic'")
+        _ = try? db.execute("UPDATE claude_jobs SET state = 'failed', error = 'The app quit during this chat.', finished_at = ? WHERE state = 'running'", [stamp])
+        _ = try? db.execute("""
+            UPDATE claude_jobs SET state = 'canceled', error = 'Nothing came back from the AI app within a week.', finished_at = ?
+            WHERE state IN ('handed_off','waiting') AND created_at < ?
+            """, [stamp, ISO.instant(now.adding(days: -7))])
+        let retired = AITask.allCases.filter(\.isRetired).map(\.rawValue)
+        _ = try? db.execute("""
+            UPDATE claude_jobs SET state = 'canceled', error = 'This kind of task was replaced in the new version.', finished_at = ?
+            WHERE state IN ('queued','running','handed_off','waiting') AND task IN (\(retired.map { _ in "?" }.joined(separator: ",")))
+            """, [stamp] + retired)
     }
 }

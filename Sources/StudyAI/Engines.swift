@@ -41,15 +41,18 @@ public enum TaskFit: Equatable, Sendable {
     }
 
     public static func of(_ task: AITask, model: ModelInfo?, providerId: String) -> TaskFit {
+        if task.isRetired { return .unsupported("This task was replaced in the new version.") }
         if providerId == EngineRef.claudeCode.providerId {
-            return task.conversational ? .unsupported("Conversations run in the chat panel or your AI app.") : .good
+            if task.engineLane == .builder { return .good }
+            return .unsupported(task.conversational ? "Conversations run in the chat here or in your AI app."
+                                                    : "Claude Code is kept for building courses. Everyday work runs on free AI.")
         }
         guard let m = model else { return .basic("Unknown model: it may not support everything this task needs.") }
-        let pipeline = task == .process || task == .extractDeadlines
-        if !pipeline && !m.tools { return .unsupported("This model can't use tools, which \(task.label.lowercased()) needs.") }
-        if task == .reviewNotes && !m.vision { return .basic("This model can't read photos, so it works from the recognized text only.") }
-        if pipeline && m.contextTokens < 24_000 { return .basic("Small model: long material is split into parts, and results may be basic.") }
-        if !pipeline && m.contextTokens < 24_000 { return .basic("Small model: long conversations are shortened as they go.") }
+        if task.usesTools && !m.tools { return .unsupported("This model can't use tools, which \(task.label.lowercased()) needs.") }
+        if m.contextTokens < task.minContext { return .unsupported("This model is too small for \(task.label.lowercased()).") }
+        if m.contextTokens < 24_000 {
+            return .basic(task.usesTools ? "Small model: long conversations are shortened as they go." : "Small model: long files are read in parts.")
+        }
         return .good
     }
 }
@@ -78,6 +81,46 @@ public struct AISettings: Sendable {
     public init(store: StudyStore) { self.store = store }
 
     public static func keyAccount(_ providerId: String) -> String { "ai.key.\(providerId)" }
+
+    /// Everyday AI (sorting and reading files, feedback, the tutor). Nil means automatic: the on-device model first.
+    /// Earlier versions kept one engine for everything in `ai_engine_default`, which is honoured until changed.
+    public var everyday: EngineRef? {
+        get {
+            if let v = store.setting("ai_everyday") { return v == "auto" ? nil : EngineRef(string: v) }
+            guard let old = store.setting("ai_engine_default"), old != "handoff", let r = EngineRef(string: old), !r.isCLI else { return nil }
+            return r
+        }
+        nonmutating set { store.setSetting("ai_everyday", newValue?.string ?? "auto") }
+    }
+
+    /// Course builder: who lays out each course, writes its notebook guide and its lessons.
+    public var builder: BuilderChoice {
+        get { BuilderChoice(setting: store.setting("ai_builder")) }
+        nonmutating set { store.setSetting("ai_builder", newValue.setting) }
+    }
+
+    /// The student said yes to a course builder (in setup or Settings), so it builds every course on its own. Until
+    /// then free AI builds basic versions, and a course is only built fully when the student asks for that course.
+    public var builderChosen: Bool { (store.setting("ai_builder") ?? "basic") != "basic" }
+
+    /// Lets paid engines run everyday work without being picked for it (off by default: everyday work stays free).
+    public var allowPaidEveryday: Bool {
+        get { store.boolSetting("ai_allow_paid_everyday") }
+        nonmutating set { store.setBool("ai_allow_paid_everyday", newValue) }
+    }
+
+    /// The model the student picked for a provider, kept per provider so choosing one never changes another setting.
+    public func model(forProvider id: String) -> String? {
+        if let m = store.setting("ai_model.\(id)") { return m }
+        for key in ["ai_everyday", "ai_engine_default"] {
+            if let r = EngineRef(string: store.setting(key)), r.providerId == id, let m = r.model { return m }
+        }
+        return nil
+    }
+    public func setModel(_ model: String?, forProvider id: String) { store.setSetting("ai_model.\(id)", model) }
+
+    /// OpenRouter's free models allow about 50 requests a day (1,000 after a one-time top-up).
+    public var openRouterFreePerDay: Int { store.intSetting("ai_openrouter_free_per_day", default: 50) }
 
     public var defaultEngine: EngineRef? {
         get { EngineRef(string: store.setting("ai_engine_default")) }
@@ -147,16 +190,19 @@ public final class StoreUsageMeter: UsageMeter, @unchecked Sendable {
     let settings: AISettings
     let jobId: Int?
     let chatId: Int?
+    let tokenCap: Int?
     private var jobTokens = 0
     private let lock = NSLock()
 
-    public init(store: StudyStore, jobId: Int? = nil, chatId: Int? = nil) {
-        self.store = store; self.settings = AISettings(store: store); self.jobId = jobId; self.chatId = chatId
+    /// `tokenCap` replaces the per-job limit for jobs that are big by nature (writing a unit's notebook guide).
+    public init(store: StudyStore, jobId: Int? = nil, chatId: Int? = nil, tokenCap: Int? = nil) {
+        self.store = store; self.settings = AISettings(store: store); self.jobId = jobId; self.chatId = chatId; self.tokenCap = tokenCap
     }
 
     public func check(provider: ProviderDescriptor, model: ModelInfo?) throws {
-        if lock.withLock({ jobTokens }) > settings.perJobTokenCap {
-            throw AIError.budgetExceeded("Stopped: this task used more than \(settings.perJobTokenCap / 1000)k tokens.")
+        let tokenLimit = tokenCap ?? settings.perJobTokenCap
+        if lock.withLock({ jobTokens }) > tokenLimit {
+            throw AIError.budgetExceeded("Stopped: this task used more than \(tokenLimit / 1000)k tokens.")
         }
         let paid = !(model?.free ?? false) && !provider.runsLocally && !provider.isApple && model?.priceInPerM != 0
         guard paid, provider.id != Catalog.openRouter.id || !(model?.id.hasSuffix(":free") ?? false) else { return }
@@ -213,23 +259,26 @@ public struct ProviderFactory: Sendable {
 }
 
 /// The tools each task needs. Fewer tools means a smaller prompt (Apple's on-device model has only a few thousand
-/// tokens) and fewer wrong calls on every engine.
+/// tokens) and fewer wrong calls on every engine. Pipelines call their tools directly, so they list them too.
 public extension AITask {
     var toolNames: Set<String> {
         switch self {
-        case .process: return ["get_material", "get_chunks", "get_slide_images", "get_concepts", "save_concepts", "save_questions", "propose_cards", "save_cornell_sheet", "mark_material_processed", "record_session"]
-        case .extractDeadlines: return ["get_material", "get_chunks", "propose_assignments"]
-        case .examPatterns: return ["get_chunks", "get_slide_images", "get_concepts", "save_note", "save_questions"]
+        case .sortFiles: return ["set_material_use"]
+        case .buildPath: return ["get_course_signals", "get_path", "get_topic", "list_materials", "get_material", "get_chunks", "get_slide_images",
+                                 "get_practice", "save_path"]
+        case .writeNotebook: return ["get_path", "get_topic", "get_chunks", "get_slide_images", "save_notebook"]
+        case .writeLessons: return ["get_path", "get_topic", "get_chunks", "get_slide_images", "get_practice", "save_lessons"]
+        case .checkAnswer, .explainFeedback: return []
+        case .buildPathBasic: return ["save_path"]
+        case .writeNotebookBasic: return ["save_notebook"]
+        case .writeLessonsBasic: return ["save_lessons"]
+        case .extractDeadlines: return ["get_material", "get_chunks", "propose_assignments", "save_material_scan"]
+        case .extractPractice, .extractExam: return ["get_practice", "label_practice_items"]
         case .checkDraft: return ["list_assignments", "list_materials", "get_chunks", "save_note"]
-        case .reviewNotes: return ["get_handwriting_captures", "get_concepts", "get_chunks", "save_note", "record_session"]
-        case .quiz: return ["get_questions", "get_review_queue", "record_session"]
-        case .recall: return ["get_concepts", "get_chunks", "save_note", "record_session"]
-        case .explain: return ["get_concepts", "get_chunks", "record_session"]
-        case .practice: return ["get_chunks", "save_questions", "save_note", "record_session"]
-        case .weeklyPlan: return ["get_overview", "list_assignments", "get_schedule", "get_review_queue", "get_outcomes", "propose_study_blocks"]
+        default: return []
         }
     }
 
     /// A free chat reads; it doesn't save.
-    static let freeChatTools: Set<String> = ["get_overview", "list_courses", "list_assignments", "get_schedule", "get_grade_summary", "list_materials", "get_chunks", "get_concepts"]
+    static let freeChatTools: Set<String> = ["get_overview", "list_courses", "list_assignments", "get_schedule", "get_grade_summary", "list_materials", "get_chunks"]
 }

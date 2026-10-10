@@ -8,21 +8,11 @@ public struct PastePrompts {
     public let store: StudyStore
     public init(store: StudyStore) { self.store = store }
 
-    public static let supported: Set<AITask> = [.process, .extractDeadlines]
-
-    static let lectureExample = """
-    {
-      "concepts": [{"name": "…", "definition": "one plain sentence", "importance": 1, "source_chunk_ids": [123], "links": [{"to_name": "…", "relation": "part_of"}]}],
-      "questions": [{"kind": "recall", "prompt": "…", "answer_key": "…", "concept_name": "…", "source_chunk_ids": [123], "difficulty": 2}],
-      "cards": [{"front": "…", "back": "…", "concept_name": "…", "source_chunk_ids": [123]}],
-      "cues": [{"text": "a question or key term with no answer", "kind": "question", "source_chunk_ids": [123]}],
-      "summary_prompt": "one line the student answers in their own words",
-      "hardest_topics": ["topic: short reason"]
-    }
-    """
+    public static let supported: Set<AITask> = [.extractDeadlines, .buildPath, .writeNotebook, .writeLessons]
 
     static let deadlineExample = """
-    {"items": [{"title": "…", "kind": "report", "due_at": "2026-10-06T23:59:00+02:00", "weight_pct": 30, "source_locator": "p. 4"}]}
+    {"items": [{"title": "…", "kind": "report", "due_at": "2026-10-06T23:59:00+02:00", "weight_pct": 30, "source_locator": "p. 4"}],
+     "outcomes": ["…"], "schedule": [{"week": 1, "date": "", "topic": "…"}], "assessment": [{"title": "…", "weight_pct": 40, "covers": ["…"]}]}
     """
 
     /// One or more prompts to paste in order. Long material is split so each part fits a free chatbot's message limit.
@@ -38,29 +28,9 @@ public struct PastePrompts {
             if size + t.count > charLimit, !parts[parts.count - 1].isEmpty { parts.append([]); size = 0 }
             parts[parts.count - 1].append(t); size += t.count
         }
-        let course = material.courseId.flatMap { store.course($0) }?.displayName ?? "unknown"
-        let existing = material.courseId.map { store.concepts(courseId: $0).map(\.name) } ?? []
         return parts.enumerated().map { i, texts in
             let partLine = parts.count > 1 ? "This is part \(i + 1) of \(parts.count). Answer for this part only; I'll paste every answer back together.\n" : ""
-            let body: String
-            switch task {
-            case .extractDeadlines:
-                body = Pipelines.deadlineInstructions(now: now, tz: store.timezone) + "\n\nReply with ONLY a JSON object like this (no other text):\n" + Self.deadlineExample
-            default:
-                let n = parts.count
-                func per(_ total: Int) -> Int { max(1, Int((Double(total) / Double(n)).rounded(.up))) }
-                body = """
-                Course: \(course). Material: "\(material.title)".
-                Concepts that already exist in this course (reuse the exact name when this material covers one): \(existing.isEmpty ? "none" : existing.prefix(60).joined(separator: "; ")).
-
-                \(Pipelines.lectureInstructions(concepts: per(12), questions: per(16), cards: per(10)))
-                - cues: up to \(per(16)) Cornell-sheet cues: short questions or key terms with NO answers.
-                - summary_prompt and hardest_topics (three, each with a short reason).
-
-                Reply with ONLY a JSON object like this (no other text):
-                \(Self.lectureExample)
-                """
-            }
+            let body = Pipelines.deadlineInstructions(now: now, tz: store.timezone) + "\n\nReply with ONLY a JSON object like this (no other text):\n" + Self.deadlineExample
             return """
             \(Pipelines.rules)
             \(partLine)
@@ -102,18 +72,10 @@ public struct PastePrompts {
         guard !answers.isEmpty else { throw AIError.badResponse("No JSON was found in what you pasted. Paste the chatbot's whole answer.") }
         guard let material = store.material(materialId) else { throw AIError.badResponse("Material \(materialId) no longer exists.") }
         var report = PipelineReport(summary: "")
-        switch task {
-        case .extractDeadlines:
-            guard let courseId = material.courseId else { throw AIError.unavailable("Put \(material.title) in a course first.") }
-            await Pipelines.saveDeadlines(Pipelines.deadlineArgs(answers, courseId: courseId, materialId: materialId, report: &report),
-                                          material: material, host: host, report: &report)
-        default:
-            let chunks = store.chunks(materialId: materialId)
-            let existing = material.courseId.map { store.concepts(courseId: $0).map(\.name) } ?? []
-            let draft = Pipelines.merge(answers, validIds: Set(chunks.map(\.id)), existing: existing, report: &report)
-            try await Pipelines.save(draft, material: material, pictureChunks: chunks.filter { $0.imageCount > 0 }.map(\.id), existing: existing,
-                                     engineName: "a pasted chatbot answer", host: host, report: &report)
-        }
+        guard let courseId = material.courseId else { throw AIError.unavailable("Put \(material.title) in a course first.") }
+        await Pipelines.saveDeadlines(Pipelines.deadlineArgs(answers, courseId: courseId, materialId: materialId, report: &report),
+                                      material: material, host: host, report: &report)
+        await Pipelines.saveSyllabusScan(answers, materialId: materialId, host: host, report: &report)
         return report
     }
 }

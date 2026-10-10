@@ -72,7 +72,10 @@ final class NotificationService {
         var digestDay = today
         if today.at(digestTime, tz: tz) < now { digestDay = today.adding(days: 1) }
         let dueToday = store.assignments().filter { a in a.isOpen && a.dueAt.map { LocalDate($0, tz: tz) == digestDay } == true }.count
-        var body = snap.suggested.title
+        // The next session, the same one Home's Start button begins; urgent work first if there is any.
+        let urgent = [.finishOverdue, .startAtRisk, .keepGoing].contains(snap.suggested.kind) ? snap.suggested.title : nil
+        var body = urgent ?? store.nextSessionPlan(now: digestDay.at(digestTime, tz: tz)).primary.map { "Next: " + SessionCopy.describe($0, store: store) }
+            ?? "You're up to date."
         if snap.cardsDue > 0 { body += " · \(snap.cardsDue) cards to review" }
         if dueToday > 0 { body += " · \(dueToday) due today" }
         add("digest-\(digestDay.string)", "Today", body, at: digestDay.at(digestTime, tz: tz))
@@ -269,6 +272,7 @@ final class MoodleService {
             model.show("Moodle: \(report.summary)" + (report.errors.first.map { " \($0)" } ?? ""), error: !report.errors.isEmpty && report.assignmentsCreated == 0)
         }
         if report.filesImported > 0 { model.enrichPendingImages() }
+        model.jobs.readNewFiles()
     }
 
     var moodleCourses: [MoodleCourseInfo] {

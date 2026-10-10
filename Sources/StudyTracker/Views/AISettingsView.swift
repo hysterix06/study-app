@@ -10,92 +10,28 @@ struct AISettingsView: View {
     @State private var keyFor: ProviderDescriptor?
     @State private var consentFor: ProviderDescriptor?
     @State private var busy: String?
+    @State private var advanced = false
 
     var body: some View {
         let _ = model.revision
         VStack(alignment: .leading, spacing: 16) {
-            Text("AI turns lectures into concepts, questions, flashcards and Cornell sheets, and runs recall, quizzes and draft checks with you. Pick a built-in engine (several are free), connect an AI app you already use, or both.")
-                .font(.stBody).foregroundStyle(Theme.textSecondary)
-            BuiltInPanel(busy: $busy)
-            EnginesPanel(keyFor: $keyFor, consentFor: $consentFor, busy: $busy)
-            AIAppsPanel()
-            UsagePanel()
-            PrivacyPanel(consentFor: $consentFor)
-            ChatsPanel()
-            Panel { ActivityList(limit: 100) }
+            Panel { AISettingsSimple(askConsent: { consentFor = $0 }) }
+            DisclosureGroup("Advanced: engines, keys, AI apps, spending, privacy, history", isExpanded: $advanced) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Toggle("Let paid engines do everyday work when free ones can't", isOn: Binding(get: { model.ai.settings.allowPaidEveryday },
+                                                                                                  set: { model.ai.settings.allowPaidEveryday = $0; model.refresh() }))
+                        .font(.stSmall)
+                    EnginesPanel(keyFor: $keyFor, consentFor: $consentFor, busy: $busy)
+                    AIAppsPanel()
+                    UsagePanel()
+                    PrivacyPanel(consentFor: $consentFor)
+                    ChatsPanel()
+                    Panel { ActivityList(limit: 100) }
+                }.padding(.top, 8)
+            }.font(.stBody)
         }
         .sheet(item: $keyFor) { d in KeySheet(provider: d) { needsConsent in if needsConsent { consentFor = d } } }
         .sheet(item: $consentFor) { d in ConsentSheet(provider: d) }
-    }
-}
-
-// MARK: Built-in AI
-
-private struct BuiltInPanel: View {
-    @Environment(AppModel.self) var model
-    @Binding var busy: String?
-    @State private var showTasks = false
-
-    var body: some View {
-        let ai = model.ai
-        let options = ai.engineOptions()
-        Panel {
-            SectionHeader(title: "Built-in AI")
-            if options.isEmpty {
-                Text("No engine is ready yet. Turn one on below. The free ones are a good start: Apple Intelligence on this Mac, or OpenRouter's free models.")
-                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
-            }
-            HStack {
-                Text("Use").font(.stBody)
-                Picker("", selection: Binding(get: { model.store.setting("ai_engine_default") ?? "" }, set: {
-                    model.store.setSetting("ai_engine_default", $0.isEmpty ? nil : $0); model.refresh()
-                })) {
-                    Text("Best free engine (automatic)").tag("")
-                    ForEach(options) { o in Text(o.title + (o.free ? " · free" : "")).tag(o.ref.string) }
-                    Divider()
-                    Text("My AI app (copy the prompt)").tag("handoff")
-                }.labelsHidden().frame(maxWidth: 380)
-            }
-            if let current = ai.engine(for: .process) {
-                Text("Lectures are processed with \(current.displayName). Conversations open in the chat here.\(ai.fit(.process, current).note.map { " \($0)" } ?? "")")
-                    .font(.stSmall).foregroundStyle(Theme.textSecondary)
-            } else {
-                Text("Tasks copy their prompt for \(ai.handoffApp?.name ?? "your AI app"), or for any chatbot.").font(.stSmall).foregroundStyle(Theme.textSecondary)
-            }
-            DisclosureGroup("Choose per task", isExpanded: $showTasks) {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(AITask.allCases, id: \.self) { task in
-                        HStack {
-                            Text(task.label).font(.stSmall).frame(width: 190, alignment: .leading)
-                            Picker("", selection: Binding(get: { model.store.setting("ai_engine.\(task.rawValue)") ?? "" }, set: {
-                                model.store.setSetting("ai_engine.\(task.rawValue)", $0.isEmpty ? nil : $0); model.refresh()
-                            })) {
-                                Text("Same as above").tag("")
-                                ForEach(options) { o in
-                                    let fit = ai.fit(task, o.ref)
-                                    if fit.isUsable { Text(o.title + (fit.note != nil ? " (basic)" : "")).tag(o.ref.string) }
-                                }
-                                Text("My AI app").tag("handoff")
-                            }.labelsHidden().frame(maxWidth: 300)
-                            if let note = ai.engine(for: task).flatMap({ ai.fit(task, $0).note }) {
-                                Image(systemName: "info.circle").foregroundStyle(Theme.textTertiary).help(note)
-                            }
-                        }
-                    }
-                }.padding(.top, 6)
-            }.font(.stSmall)
-            Toggle("Process new lectures automatically once filed", isOn: boolBinding(model, "auto_process"))
-            if model.store.boolSetting("auto_process") {
-                Toggle("…even with a paid engine", isOn: boolBinding(model, "auto_process_paid")).font(.stSmall).padding(.leading, 18)
-            }
-            if model.ai.claudeCLI() != nil || model.ai.edition == .macDirect {
-                HStack {
-                    Text(model.ai.claudeCLI() != nil ? "Claude Code found: it can run background tasks on your Claude plan." : "Claude Code isn't installed.")
-                        .font(.stSmall).foregroundStyle(Theme.textTertiary)
-                    Button("Look again") { model.ai.resetCLICache(); model.refresh() }.buttonStyle(.borderless).font(.stSmall)
-                }
-            }
-        }
     }
 }
 
@@ -225,11 +161,10 @@ private struct ModelMenu: View {
             .onAppear { if s.cachedModels(provider.id).isEmpty && model.ai.status(provider).isReady { refresh() } }
     }
 
+    /// Picking a model is remembered for this provider only; it never changes which engine does what.
     func choose(_ id: String) {
-        let ref = EngineRef(provider.id, model: id)
-        // Picking a model makes it the default when nothing else is chosen, or updates the default's model.
-        if model.ai.settings.defaultEngine == nil || model.ai.settings.defaultEngine?.providerId == provider.id { model.ai.settings.defaultEngine = ref }
-        for task in AITask.allCases where model.ai.settings.override(for: task)?.providerId == provider.id { model.ai.settings.setOverride(ref, for: task) }
+        model.ai.settings.setModel(id, forProvider: provider.id)
+        if model.ai.settings.everyday?.providerId == provider.id { model.ai.settings.everyday = EngineRef(provider.id, model: id) }
         model.refresh()
     }
 

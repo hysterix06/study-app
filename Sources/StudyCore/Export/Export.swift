@@ -4,7 +4,9 @@ import Foundation
 public enum Exporter {
     static let tables = ["settings", "terms", "term_breaks", "courses", "class_patterns", "class_exceptions", "calendar_sources", "events",
                          "materials", "chunks", "assignments", "concepts", "concept_sources", "concept_links", "questions", "cards",
-                         "card_reviews", "notes", "handwriting_captures", "study_sessions", "study_blocks", "conflicts", "audit_log"]
+                         "card_reviews", "notes", "handwriting_captures", "study_sessions", "study_blocks", "conflicts", "audit_log",
+                         "course_paths", "path_units", "path_topics", "topic_notebook", "topic_lessons", "topic_coverage", "material_scans",
+                         "practice_items", "practice_attempts", "topic_checks", "assessment_topics"]
 
     /// One JSON file with every table, plus a Markdown folder of concepts, notes and sheets.
     @discardableResult
@@ -71,8 +73,76 @@ public enum Exporter {
                     index += "- " + (obsidian ? "[[\(name)]]" : n.title) + "\n"
                 }
             }
+            index += try pathExport(store: store, course: c, to: dir, obsidian: obsidian)
             try index.write(to: dir.appendingPathComponent("\(Slug.make(c.codeOrName)).md"), atomically: true, encoding: .utf8)
         }
+    }
+
+    /// The course's path (with the student's progress), its whole notebook guide in one file, and one file per lesson.
+    /// Drawings are saved beside the guide as .svg files. Returns the lines for the course's index.
+    static func pathExport(store: StudyStore, course c: Course, to dir: URL, obsidian: Bool) throws -> String {
+        guard let path = store.path(courseId: c.id) else { return "" }
+        let fm = FileManager.default
+        let numbers = store.topicNumbers(courseId: c.id)
+        let topics = store.topics(courseId: c.id)
+        let units = store.units(courseId: c.id)
+        func front(_ type: String) -> String {
+            obsidian ? "---\ncourse: \"\(c.codeOrName.replacingOccurrences(of: "\"", with: "\\\""))\"\ntype: \(type)\ntier: \(path.tier)\n---\n\n" : ""
+        }
+
+        var pathMd = front("path") + "# \(c.name): path\n\n\(path.tierLabel)\(path.builtWith.map { " · \($0)" } ?? "")\n\n"
+        if let a = path.approachMd { pathMd += "## How to learn it\n\n\(a)\n\n" }
+        if let a = path.anglesMd { pathMd += "## How this course grades\n\n\(a)\n\n" }
+        var guide = front("notebook") + "# \(c.name): notebook guide\n\n"
+        let pictures = dir.appendingPathComponent("Notebook drawings")
+        var lessonsWritten = 0
+        for (i, u) in units.enumerated() {
+            let mine = topics.filter { $0.unitId == u.id }
+            pathMd += "## Unit \(i + 1): \(u.title)\n\n"
+            guide += "## Unit \(i + 1): \(u.title)\n\n"
+            for t in mine {
+                let n = numbers[t.id] ?? ""
+                pathMd += "- \(n) \(t.title) · \(t.mastery.label)\(t.notebookPage.map { " · notebook p. \($0)" } ?? "")\n"
+                guide += "### \(n) \(t.title)\(t.notebookPage.map { " (p. \($0))" } ?? "")\n\n"
+                if let page = store.notebook(topicId: t.id) {
+                    for term in page.terms {
+                        guide += "- **\(term.term)**\(term.definition.isEmpty ? "" : ": \(term.definition)")\n"
+                        if let w = term.courseWording { guide += "  - Your course: “\(w)”\(term.locator.map { " (\($0))" } ?? "")\n" }
+                    }
+                    for (j, d) in page.diagrams.enumerated() {
+                        guide += "\n**Draw: \(d.title).** \(d.draw)\(d.labels.isEmpty ? "" : " Label: \(d.labels.joined(separator: ", ")).")\n"
+                        if let svg = d.svg {
+                            try fm.createDirectory(at: pictures, withIntermediateDirectories: true)
+                            let name = Slug.make("\(n) \(t.title) \(j + 1)") + ".svg"
+                            // The sanitiser writes the namespace on the root; drawings saved without one get it here.
+                            let file = svg.contains("xmlns=") ? svg : svg.replacingOccurrences(of: "<svg ", with: "<svg xmlns=\"http://www.w3.org/2000/svg\" ")
+                            try file.write(to: pictures.appendingPathComponent(name), atomically: true, encoding: .utf8)
+                            guide += obsidian ? "![[\(name)]]\n" : "![\(d.title)](Notebook%20drawings/\(name))\n"
+                        }
+                    }
+                    for f in page.formulas { guide += "\n$$\(f.latex)$$\n\(f.meaning)\n" }
+                }
+                guide += "\n"
+                if let lesson = store.lesson(topicId: t.id) {
+                    let lessonsDir = dir.appendingPathComponent("Lessons")
+                    try fm.createDirectory(at: lessonsDir, withIntermediateDirectories: true)
+                    var md = front("lesson") + "# \(n) \(t.title)\n\n"
+                    if let q = lesson.preQuestion { md += "*\(q)*\n\n" }
+                    for sec in lesson.sections {
+                        let sources = sec.sourceChunkIds.isEmpty ? "" : " (" + store.chunks(ids: sec.sourceChunkIds).map(\.locator).joined(separator: ", ") + ")"
+                        md += "## \(sec.title)\(sources)\n\n\(sec.bodyMd)\n\n"
+                    }
+                    if !lesson.checks.isEmpty { md += "## Quick checks\n\n" + lesson.checks.map { "- \($0.prompt) → \($0.answer)" }.joined(separator: "\n") + "\n" }
+                    try md.write(to: lessonsDir.appendingPathComponent(Slug.make("\(n) \(t.title)") + ".md"), atomically: true, encoding: .utf8)
+                    lessonsWritten += 1
+                }
+            }
+            pathMd += "\n"
+        }
+        try pathMd.write(to: dir.appendingPathComponent("Path.md"), atomically: true, encoding: .utf8)
+        try guide.write(to: dir.appendingPathComponent("Notebook guide.md"), atomically: true, encoding: .utf8)
+        return "\n## Path\n\n- " + (obsidian ? "[[Path]]" : "Path.md") + "\n- " + (obsidian ? "[[Notebook guide]]" : "Notebook guide.md")
+            + (lessonsWritten > 0 ? "\n- \(lessonsWritten) lesson\(lessonsWritten == 1 ? "" : "s") in Lessons" : "") + "\n"
     }
 
     /// Tab-separated front/back/tags that Anki imports directly (File → Import), so reviews can happen on a phone.

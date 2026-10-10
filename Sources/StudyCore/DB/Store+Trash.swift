@@ -92,15 +92,10 @@ public final class TrashRecorder {
     /// Deletes rows by id, saving them and everything the delete would take with them.
     public func delete(_ table: String, ids: [Int]) throws {
         guard !ids.isEmpty else { return }
-        if table == "materials" { snapshotSetting("inbox_skipped_materials") }
         var removed: [(table: String, rowid: Int64)] = []
         try capture(table, column: "id", values: ids.map { .int(Int64($0)) }, removed: &removed)
         // Children first, so NO ACTION references (courses → terms) never block the parent.
         for r in removed.reversed() { try db.execute("DELETE FROM \(r.table) WHERE rowid = ?", [r.rowid]) }
-        if table == "materials" {
-            let skipped = store.skippedMaterialIds()
-            store.setSkippedMaterialIds(skipped.subtracting(ids))
-        }
     }
 
     /// Saves rows that are about to change (not be deleted), so restore puts their old values back.
@@ -359,8 +354,8 @@ public extension StudyStore {
     }
 
     func skipMaterialUndoable(_ id: Int) throws -> UndoSnapshot {
-        try recordChange("Skipped \(material(id)?.title ?? "file")") { rec in
-            rec.snapshotSetting("inbox_skipped_materials")
+        try recordChange("Set aside \(material(id)?.title ?? "file")") { rec in
+            try rec.snapshot("materials", ids: [id])
             skipMaterial(id)
         }
     }
@@ -379,10 +374,8 @@ public extension StudyStore {
         let label = "Cleared the Inbox (\(n) item\(n == 1 ? "" : "s"))"
         let id = try trash(kind: "inbox_batch", label: label, batchId: UUID().uuidString) { rec in
             try rec.delete("materials", ids: deleteMaterials)
-            if !skip.isEmpty {
-                rec.snapshotSetting("inbox_skipped_materials")
-                for m in skip { skipMaterial(m) }
-            }
+            try rec.snapshot("materials", ids: skip)
+            for m in skip { skipMaterial(m) }
             try rec.snapshot("assignments", ids: dismissAssignments)
             for a in dismissAssignments { try dismissProposed(a) }
             try rec.snapshot("study_blocks", ids: dismissBlocks)

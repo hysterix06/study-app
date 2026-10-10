@@ -62,7 +62,7 @@ public func calendar(in tz: TimeZone) -> Calendar {
 }
 
 /// A calendar date without time or zone, "YYYY-MM-DD".
-public struct LocalDate: Hashable, Comparable, Codable, CustomStringConvertible {
+public struct LocalDate: Hashable, Comparable, Codable, CustomStringConvertible, Sendable {
     public let year: Int, month: Int, day: Int
 
     public init(year: Int, month: Int, day: Int) {

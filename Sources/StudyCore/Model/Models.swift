@@ -305,13 +305,59 @@ public struct Assignment: Identifiable, Hashable {
 }
 
 public enum MaterialRole: String, CaseIterable, Identifiable {
-    case lecture, reading, syllabus, rubric, brief, pastExam = "past_exam", other
+    case lecture, reading, practice, example, syllabus, rubric, brief, pastExam = "past_exam", other
     public var id: String { rawValue }
     public var label: String {
         switch self {
+        case .practice: return "Practice problems"
+        case .example: return "Class example"
         case .pastExam: return "Past exam"
         case .brief: return "Assignment brief"
         default: return rawValue.capitalized
+        }
+    }
+    /// How a file of this role is used. A file can still be set aside ("Not used") whatever its role.
+    public var group: FileGroup {
+        switch self {
+        case .lecture, .reading: return .path
+        case .practice, .example: return .practice
+        case .pastExam: return .exams
+        case .syllabus, .rubric, .brief: return .info
+        case .other: return .notUsed
+        }
+    }
+}
+
+/// The five ways a course file is used. Course files are signals for the path, never notes in themselves.
+public enum FileGroup: String, CaseIterable, Identifiable {
+    case path, practice, exams, info, notUsed = "not_used"
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .path: return "Shapes your path"
+        case .practice: return "Practice"
+        case .exams: return "Exams"
+        case .info: return "Course info"
+        case .notUsed: return "Not used"
+        }
+    }
+    public var explanation: String {
+        switch self {
+        case .path: return "Lectures and readings show which topics your course covers, when, how it words them and what it stresses."
+        case .practice: return "Problem sets, tutorials and class examples become practice problems, with their solutions."
+        case .exams: return "Past exams show what earns marks. Their questions become exam-style practice."
+        case .info: return "Syllabi, rubrics and briefs give deadlines, weights and what each exam covers."
+        case .notUsed: return "Kept for reference and never used for your notebook, lessons or practice."
+        }
+    }
+    /// The role a file gets when the student moves it into this group.
+    public var defaultRole: MaterialRole {
+        switch self {
+        case .path: return .lecture
+        case .practice: return .practice
+        case .exams: return .pastExam
+        case .info: return .syllabus
+        case .notUsed: return .other
         }
     }
 }
@@ -323,6 +369,21 @@ public struct Material: Identifiable, Hashable {
     public var title: String
     public var kind: String
     public var role: MaterialRole
+    /// Who decided the role: `legacy` (before v6), `auto` (the sorting rules), `moodle`, `ai` or `user`. The student's
+    /// choice always wins: nothing automatic changes a `user` role.
+    public var roleSource: String
+    public var roleConfidence: Double?
+    /// Why the file was sorted this way, shown next to its group ("Moodle section: Tutorials").
+    public var sortReason: String?
+    /// Set aside by the student or the sorter: kept, never used.
+    public var excluded: Bool
+    public var sectionName: String?
+    public var moduleName: String?
+    /// A solutions file and the problem sheet it answers.
+    public var pairsWith: Int?
+    public var taughtOn: LocalDate?
+    /// Whether the free AI has read the file for the path (`pending`, `done`, `skipped`, `failed`).
+    public var readState: String
     public var originalFilename: String?
     public var storedPath: String?
     public var assetsPath: String?
@@ -337,10 +398,20 @@ public struct Material: Identifiable, Hashable {
     init(row r: Row) {
         id = r.i("id"); courseId = r.int("course_id"); suggestedCourseId = r.int("suggested_course_id"); title = r.str("title")
         kind = r.str("kind"); role = MaterialRole(rawValue: r.str("role")) ?? .lecture
+        roleSource = r.string("role_source") ?? "legacy"; roleConfidence = r.double("role_confidence"); sortReason = r.string("sort_reason")
+        excluded = r.bool("excluded"); sectionName = r.string("section_name"); moduleName = r.string("module_name")
+        pairsWith = r.int("pairs_with"); taughtOn = r.string("taught_on").flatMap(LocalDate.init)
+        readState = r.string("read_state") ?? "pending"
         originalFilename = r.string("original_filename"); storedPath = r.string("stored_path"); assetsPath = r.string("assets_path")
         contentHash = r.str("content_hash"); status = r.str("status"); statusDetail = r.string("status_detail")
         pageCount = r.int("page_count"); processedAt = r.string("processed_at").flatMap { ISO.parse($0) }
         externalUid = r.string("external_uid"); importedAt = ISO.parse(r.str("imported_at")) ?? Date()
+    }
+
+    /// Unreadable files and files set aside are "Not used", whatever their role.
+    public var group: FileGroup {
+        if excluded || status == "failed" || status == "needs_ocr" { return .notUsed }
+        return role.group
     }
 }
 
@@ -404,6 +475,7 @@ public struct Card: Identifiable, Hashable {
     public var materialId: Int?
     public var conceptId: Int?
     public var questionId: Int?
+    public var topicId: Int?
     public var front: String
     public var back: String
     public var sourceLocators: String?
@@ -414,7 +486,8 @@ public struct Card: Identifiable, Hashable {
     public var createdBy: String
     init(row r: Row) {
         id = r.i("id"); courseId = r.i("course_id"); materialId = r.int("material_id"); conceptId = r.int("concept_id")
-        questionId = r.int("question_id"); front = r.str("front"); back = r.str("back"); sourceLocators = r.string("source_locators")
+        questionId = r.int("question_id"); topicId = r.int("topic_id")
+        front = r.str("front"); back = r.str("back"); sourceLocators = r.string("source_locators")
         due = ISO.parse(r.str("due")) ?? Date(); state = r.i("state")
         fsrs = FSRSCard.decode(r.string("fsrs_json")) ?? FSRSCard()
         status = r.str("status"); createdBy = r.str("created_by")
@@ -444,7 +517,14 @@ public struct StudySession: Identifiable, Hashable {
     public var courseId: Int?
     public var materialId: Int?
     public var assignmentId: Int?
+    public var topicId: Int?
+    /// `notebook`, `topic`, `review`, `exam_prep`, or one of the pre-v6 kinds.
     public var kind: String
+    /// `quick`, `standard` or `deep`.
+    public var mode: String?
+    /// The step the session is on, so it can be resumed.
+    public var step: String?
+    public var progressJson: String?
     public var startedAt: Date
     public var endedAt: Date?
     public var summary: String?
@@ -454,6 +534,7 @@ public struct StudySession: Identifiable, Hashable {
     public var createdBy: String
     init(row r: Row) {
         id = r.i("id"); courseId = r.int("course_id"); materialId = r.int("material_id"); assignmentId = r.int("assignment_id")
+        topicId = r.int("topic_id"); mode = r.string("mode"); step = r.string("step"); progressJson = r.string("progress_json")
         kind = r.str("kind"); startedAt = ISO.parse(r.str("started_at")) ?? Date()
         endedAt = r.string("ended_at").flatMap { ISO.parse($0) }; summary = r.string("summary")
         weakConceptIds = JSON.intArray(r.string("weak_concept_ids")); itemsTotal = r.int("items_total")

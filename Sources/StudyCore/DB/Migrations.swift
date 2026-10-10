@@ -5,14 +5,27 @@ import Foundation
 public enum Migrations {
     public static var currentVersion: Int { all.count }
 
-    public static let all: [String] = [v1, v2, v3, v4, v5]
+    public static let all: [String] = [v1, v2, v3, v4, v5, v6]
 
-    public static func migrate(_ db: Database) throws {
+    /// Runs every migration after the database's version, up to `target` (tests stop early to build old databases).
+    ///
+    /// Rebuilding a table (create a copy, copy the rows, drop, rename) must not cascade: with foreign keys on, the drop
+    /// would delete every child row (a material's chunks, sources and questions). So foreign keys go off for the run,
+    /// which only works outside a transaction, and each migration checks that it broke no reference before it commits.
+    public static func migrate(_ db: Database, upTo target: Int = all.count) throws {
         let version = db.userVersion
-        guard version < all.count else { return }
-        for (i, sql) in all.enumerated() where i >= version {
+        guard version < target else { return }
+        try db.execute("PRAGMA foreign_keys=OFF")
+        defer { _ = try? db.execute("PRAGMA foreign_keys=ON") }
+        for (i, sql) in all.enumerated() where i >= version && i < target {
             try db.transaction {
+                let before = try db.query("PRAGMA foreign_key_check").count
                 try db.executeScript(sql)
+                let after = try db.query("PRAGMA foreign_key_check").count
+                if after > before {
+                    throw DBError.step("Migration \(i + 1) would leave \(after - before) broken references, so nothing was changed.",
+                                       sql: "PRAGMA foreign_key_check")
+                }
                 try db.execute("PRAGMA user_version = \(i + 1)")
             }
         }
@@ -485,5 +498,269 @@ public enum Migrations {
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
     );
     CREATE INDEX ai_messages_chat ON ai_messages(chat_id, id);
+    """
+
+    /// Notebook → Path → Session → Review. Course files become signals: practice problems and class examples get their
+    /// own roles, any file can be set aside ("Not used"), and Moodle's section names are kept for sorting. Each course
+    /// gets a path of units and topics with a handwritten-notebook guide, lessons and a practice bank; sessions remember
+    /// their step; jobs gain lanes, priorities and retries.
+    static let v6 = """
+    CREATE TABLE materials_v6 (
+      id INTEGER PRIMARY KEY,
+      course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+      suggested_course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('slides','pdf','doc','text','image')),
+      role TEXT NOT NULL DEFAULT 'lecture'
+        CHECK (role IN ('lecture','reading','practice','example','syllabus','rubric','brief','past_exam','other')),
+      role_source TEXT NOT NULL DEFAULT 'auto' CHECK (role_source IN ('legacy','auto','moodle','ai','user')),
+      role_confidence REAL,
+      sort_reason TEXT,
+      excluded INTEGER NOT NULL DEFAULT 0,
+      section_name TEXT,
+      module_name TEXT,
+      pairs_with INTEGER,
+      taught_on TEXT,
+      read_state TEXT NOT NULL DEFAULT 'pending' CHECK (read_state IN ('pending','done','skipped','failed')),
+      read_at TEXT,
+      read_engine TEXT,
+      original_filename TEXT,
+      stored_path TEXT,
+      assets_path TEXT,
+      content_hash TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'inbox' CHECK (status IN ('inbox','ready','needs_ocr','failed')),
+      status_detail TEXT,
+      page_count INTEGER,
+      processed_at TEXT,
+      external_uid TEXT,
+      imported_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    INSERT INTO materials_v6(id, course_id, suggested_course_id, title, kind, role, role_source, original_filename, stored_path,
+                             assets_path, content_hash, status, status_detail, page_count, processed_at, external_uid,
+                             imported_at, created_at, updated_at)
+      SELECT id, course_id, suggested_course_id, title, kind, role, 'legacy', original_filename, stored_path,
+             assets_path, content_hash, status, status_detail, page_count, processed_at, external_uid,
+             imported_at, created_at, updated_at FROM materials;
+    DROP TABLE materials;
+    ALTER TABLE materials_v6 RENAME TO materials;
+    CREATE INDEX materials_external ON materials(external_uid);
+    CREATE INDEX materials_course_role ON materials(course_id, role, excluded);
+
+    CREATE TABLE course_paths (
+      id INTEGER PRIMARY KEY,
+      course_id INTEGER NOT NULL UNIQUE REFERENCES courses(id) ON DELETE CASCADE,
+      tier TEXT NOT NULL DEFAULT 'skeleton' CHECK (tier IN ('skeleton','basic','full')),
+      built_with TEXT,
+      approach_md TEXT,
+      angles_md TEXT,
+      resources_json TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      signals_hash TEXT,
+      stale INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
+    CREATE TABLE path_units (
+      id INTEGER PRIMARY KEY,
+      path_id INTEGER NOT NULL REFERENCES course_paths(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    CREATE INDEX path_units_path ON path_units(path_id, ordinal);
+
+    CREATE TABLE path_topics (
+      id INTEGER PRIMARY KEY,
+      course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      unit_id INTEGER REFERENCES path_units(id) ON DELETE SET NULL,
+      ordinal INTEGER NOT NULL DEFAULT 0,
+      key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT,
+      objectives_json TEXT NOT NULL DEFAULT '[]',
+      prereq_ids_json TEXT NOT NULL DEFAULT '[]',
+      est_minutes INTEGER NOT NULL DEFAULT 25 CHECK (est_minutes BETWEEN 5 AND 240),
+      emphasis INTEGER NOT NULL DEFAULT 1 CHECK (emphasis BETWEEN 0 AND 3),
+      beyond_course INTEGER NOT NULL DEFAULT 0,
+      retired INTEGER NOT NULL DEFAULT 0,
+      user_state TEXT CHECK (user_state IN ('known','hidden')),
+      mastery TEXT NOT NULL DEFAULT 'new' CHECK (mastery IN ('new','familiar','learning','practiced','solid','refresh')),
+      mastery_at TEXT,
+      last_studied_at TEXT,
+      notebook_written_at TEXT,
+      notebook_page TEXT,
+      created_by TEXT NOT NULL DEFAULT 'claude' CHECK (created_by IN ('claude','user','app')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    CREATE UNIQUE INDEX path_topics_key ON path_topics(course_id, key);
+    CREATE INDEX path_topics_unit ON path_topics(unit_id, ordinal);
+
+    CREATE TABLE topic_notebook (
+      topic_id INTEGER PRIMARY KEY REFERENCES path_topics(id) ON DELETE CASCADE,
+      terms_json TEXT NOT NULL DEFAULT '[]',
+      diagrams_json TEXT NOT NULL DEFAULT '[]',
+      formulas_json TEXT NOT NULL DEFAULT '[]',
+      links_json TEXT NOT NULL DEFAULT '[]',
+      tier TEXT NOT NULL CHECK (tier IN ('skeleton','basic','full')),
+      generated_by TEXT NOT NULL,
+      stale INTEGER NOT NULL DEFAULT 0,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
+    CREATE TABLE topic_lessons (
+      topic_id INTEGER PRIMARY KEY REFERENCES path_topics(id) ON DELETE CASCADE,
+      tier TEXT NOT NULL CHECK (tier IN ('skeleton','basic','full')),
+      pre_question TEXT,
+      sections_json TEXT NOT NULL DEFAULT '[]',
+      checks_json TEXT NOT NULL DEFAULT '[]',
+      cards_json TEXT NOT NULL DEFAULT '[]',
+      explain_prompt TEXT,
+      est_minutes INTEGER,
+      generated_by TEXT NOT NULL,
+      stale INTEGER NOT NULL DEFAULT 0,
+      version INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+
+    CREATE TABLE material_scans (
+      material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('outline','syllabus','practice','exam')),
+      result_json TEXT NOT NULL,
+      engine TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      PRIMARY KEY (material_id, kind)
+    );
+
+    CREATE TABLE topic_coverage (
+      topic_id INTEGER NOT NULL REFERENCES path_topics(id) ON DELETE CASCADE,
+      material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+      chunk_ids_json TEXT NOT NULL DEFAULT '[]',
+      emphasis INTEGER NOT NULL DEFAULT 1,
+      source TEXT NOT NULL DEFAULT 'scan' CHECK (source IN ('scan','builder','user')),
+      PRIMARY KEY (topic_id, material_id)
+    );
+    CREATE INDEX topic_coverage_material ON topic_coverage(material_id);
+
+    CREATE TABLE practice_items (
+      id INTEGER PRIMARY KEY,
+      course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      topic_id INTEGER REFERENCES path_topics(id) ON DELETE SET NULL,
+      topic_label TEXT,
+      source TEXT NOT NULL CHECK (source IN ('course','generated')),
+      material_id INTEGER REFERENCES materials(id) ON DELETE CASCADE,
+      chunk_ids_json TEXT NOT NULL DEFAULT '[]',
+      locator TEXT,
+      number TEXT,
+      kind TEXT NOT NULL DEFAULT 'short'
+        CHECK (kind IN ('calculate','short','explain','apply','compare','mcq','essay','proof','case','other')),
+      prompt_md TEXT NOT NULL,
+      solution_md TEXT,
+      hints_json TEXT NOT NULL DEFAULT '[]',
+      difficulty INTEGER NOT NULL DEFAULT 2 CHECK (difficulty BETWEEN 1 AND 3),
+      exam_style INTEGER NOT NULL DEFAULT 0,
+      marks REAL,
+      created_by TEXT NOT NULL DEFAULT 'claude' CHECK (created_by IN ('claude','user','app')),
+      legacy_question_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    CREATE INDEX practice_items_topic ON practice_items(topic_id);
+    CREATE INDEX practice_items_course ON practice_items(course_id, source);
+    CREATE INDEX practice_items_material ON practice_items(material_id);
+
+    CREATE TABLE assessment_topics (
+      assignment_id INTEGER NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+      topic_id INTEGER NOT NULL REFERENCES path_topics(id) ON DELETE CASCADE,
+      source TEXT NOT NULL DEFAULT 'auto' CHECK (source IN ('builder','syllabus','auto','user')),
+      PRIMARY KEY (assignment_id, topic_id)
+    );
+    CREATE INDEX assessment_topics_topic ON assessment_topics(topic_id);
+
+    CREATE TABLE study_sessions_v6 (
+      id INTEGER PRIMARY KEY,
+      course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+      material_id INTEGER REFERENCES materials(id) ON DELETE SET NULL,
+      assignment_id INTEGER REFERENCES assignments(id) ON DELETE SET NULL,
+      topic_id INTEGER REFERENCES path_topics(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL
+        CHECK (kind IN ('process','recall','feynman','quiz','review','free','handwriting','notebook','topic','exam_prep')),
+      mode TEXT CHECK (mode IN ('quick','standard','deep')),
+      step TEXT,
+      progress_json TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      summary TEXT,
+      weak_concept_ids TEXT,
+      items_total INTEGER,
+      items_correct INTEGER,
+      created_by TEXT NOT NULL DEFAULT 'user' CHECK (created_by IN ('user','claude')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    INSERT INTO study_sessions_v6(id, course_id, material_id, assignment_id, kind, started_at, ended_at, summary,
+                                  weak_concept_ids, items_total, items_correct, created_by, created_at)
+      SELECT id, course_id, material_id, assignment_id, kind, started_at, ended_at, summary,
+             weak_concept_ids, items_total, items_correct, created_by, created_at FROM study_sessions;
+    DROP TABLE study_sessions;
+    ALTER TABLE study_sessions_v6 RENAME TO study_sessions;
+    CREATE INDEX study_sessions_topic ON study_sessions(topic_id);
+    CREATE INDEX study_sessions_open ON study_sessions(ended_at, kind);
+
+    CREATE TABLE practice_attempts (
+      id INTEGER PRIMARY KEY,
+      item_id INTEGER NOT NULL REFERENCES practice_items(id) ON DELETE CASCADE,
+      session_id INTEGER REFERENCES study_sessions(id) ON DELETE SET NULL,
+      attempted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      answer_text TEXT,
+      self_rating TEXT NOT NULL CHECK (self_rating IN ('got','partly','missed')),
+      rated_by TEXT NOT NULL DEFAULT 'user' CHECK (rated_by IN ('user')),
+      ai_feedback_md TEXT,
+      ai_verdict TEXT,
+      duration_ms INTEGER
+    );
+    CREATE INDEX practice_attempts_item ON practice_attempts(item_id);
+
+    CREATE TABLE topic_checks (
+      id INTEGER PRIMARY KEY,
+      topic_id INTEGER NOT NULL REFERENCES path_topics(id) ON DELETE CASCADE,
+      session_id INTEGER REFERENCES study_sessions(id) ON DELETE SET NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('notebook_review','explain')),
+      rating TEXT NOT NULL CHECK (rating IN ('solid','shaky','nailed','mostly','not_yet')),
+      rated_by TEXT NOT NULL DEFAULT 'user' CHECK (rated_by IN ('user')),
+      answer_text TEXT,
+      ai_feedback_md TEXT,
+      at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    CREATE INDEX topic_checks_topic ON topic_checks(topic_id, kind);
+
+    ALTER TABLE cards ADD COLUMN topic_id INTEGER REFERENCES path_topics(id) ON DELETE SET NULL;
+    CREATE INDEX cards_topic ON cards(topic_id);
+
+    ALTER TABLE claude_jobs ADD COLUMN lane TEXT NOT NULL DEFAULT 'everyday';
+    ALTER TABLE claude_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 50;
+    ALTER TABLE claude_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE claude_jobs ADD COLUMN engines_tried TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE claude_jobs ADD COLUMN not_before TEXT;
+    ALTER TABLE claude_jobs ADD COLUMN course_id INTEGER;
+
+    -- The old slide questions become practice (they keep their source slides); topics are linked later.
+    INSERT INTO practice_items(course_id, source, material_id, chunk_ids_json, kind, prompt_md, solution_md, difficulty,
+                               created_by, legacy_question_id, created_at, updated_at)
+      SELECT course_id, 'generated', material_id, source_chunk_ids, CASE kind WHEN 'recall' THEN 'short' ELSE kind END,
+             prompt, answer_key, difficulty, created_by, id, created_at, updated_at FROM questions;
+
+    -- Files skipped in the old Inbox are files the student set aside: "Not used".
+    UPDATE materials SET excluded = 1, role_source = 'user', read_state = 'skipped'
+      WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(
+        COALESCE((SELECT value FROM settings WHERE key = 'inbox_skipped_materials'), '[]')));
+    DELETE FROM settings WHERE key = 'inbox_skipped_materials';
     """
 }

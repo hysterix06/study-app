@@ -34,6 +34,12 @@ public struct TodayInputs {
 /// Exactly one suggested action, chosen by ordered rules (first match wins). Within a rule, items are
 /// ranked by impact — weight × time pressure — rather than by due date alone.
 public enum TodayRules {
+    /// Overdue or at-risk graded work (rules 1 and 2): Home shows it as a banner above the next session.
+    public static func urgent(_ i: TodayInputs) -> SuggestedAction? {
+        let s = suggest(i)
+        return [.finishOverdue, .startAtRisk, .keepGoing].contains(s.kind) ? s : nil
+    }
+
     public static func suggest(_ i: TodayInputs) -> SuggestedAction {
         let open = i.assignments.filter { $0.confirmed && $0.isOpen }
 

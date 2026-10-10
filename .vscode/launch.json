@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:study-app}",
+            "name": "Debug StudyTracker",
+            "target": "StudyTracker",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug StudyTracker"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:study-app}",
+            "name": "Release StudyTracker",
+            "target": "StudyTracker",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release StudyTracker"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:study-app}",
+            "name": "Debug study-mcp",
+            "target": "study-mcp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug study-mcp"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:study-app}",
+            "name": "Release study-mcp",
+            "target": "study-mcp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release study-mcp"
+        }
+    ]
+}

@@ -138,3 +138,36 @@ Moodle deadlines are confirmed directly by default (a setting). User edits are p
 
 **Open (needs an Apple Developer account and devices):** whether the MCP helper inside a sandboxed App Store build can be launched by Claude Desktop and reach an App Group database (fallback: a separate notarized "Connector" download); PCC quotas in practice; iOS build; Linux/Windows compile of the portable targets.
 
+
+## D18. Notebook, path, session, review (the v6 redesign)
+
+**Was:** every lecture went through a fixed loop (recall, process into concepts and questions, a printed Cornell sheet filled in and photographed, cards), and everything taught had to be taken from the slides, cited. Studying sat three levels down behind about 20 screens, and files fell back to "lecture".
+
+**Now:** the course's files are signals, and the learning comes from outside them.
+
+- **Notebook first.** Each course is written, start to finish, into the student's own dotted notebook: per topic, the words (definitions, with the course's own wording when its files have it) and the pictures (what to draw and label, plus a reference drawing from a strong model). It's the reading-notes pass: the course becomes familiar and its real size visible before the deep learning starts, and it's what exam prep reviews from. No photos; the student checks their own pages against the guide.
+- **Path.** A course builder lays the course out as units of numbered topics in the best order to learn it at university level, shaped by the syllabus, what lectures stress (⚑ cues), past-exam marks and deadlines. Topic ids survive rebuilds, so progress stays with a topic; topics the student started are never dropped ("Also studied"). Prerequisites are kept a DAG.
+- **Sessions.** One Start button, chosen by fixed, explainable rules (`NextSession`): notebook pages first, then topics in path order with exam pressure, lectures that have moved past the student, fading topics and weak spots. Four kinds: Notebook, Topic (warm-up cards → lesson → the course's own problems → explain it back → keep cards), Review, and Exam prep (cover the page, recall, check, rate solid or shaky; then exam-style practice), each in quick, standard or deep sizes, saved after every step.
+- **Mastery** comes only from the student's own ratings and their cards' FSRS retrievability: new → familiar (page written) → learning → practised → solid, and back to refresh when it fades.
+- **Two zones.** General teaching (the idea, worked examples, definitions) comes from the model's knowledge and is labelled as such. Anything about what *this course* says must cite its chunks, and a course wording must actually appear in the slide it cites; otherwise it's kept as general knowledge.
+- **Files sort themselves.** Rules in several languages (names, Moodle sections and modules, first pages), then free AI for the unsure ones, then the student only below 0.6 confidence. Groups: shapes your path, practice (problems split out word for word, solutions paired by number), exams, course info, not used.
+
+**AI tiers.**
+
+| Tier | Runs on | Does |
+| --- | --- | --- |
+| Everyday AI (bulk lane) | on-device → Apple cloud → local → free online | sorting files, reading syllabi, labelling problems |
+| Everyday AI (quality lane) | Apple cloud → free online → on-device → local | basic path, notebook and lessons; answer checks, explanation feedback and the tutor (never the on-device model: in testing it marked right answers wrong with invented maths) |
+| Course builder | Claude Code (`claude -p`, Study Tracker tools only) → Anthropic key; or by hand: Claude Desktop, Copy for Claude.ai | the full path, the notebook guide with drawings, lessons |
+
+Without a course builder, free AI builds a basic version: on a small model, one request per lecture names the ideas it teaches and the app lays them out in teaching order (one request for the whole course on bigger models). With no AI at all, a skeleton path (one topic per lecture, slide headings as words to look up) still works. The builder runs only when the student opts in (setup, Settings, or "Build with Claude" on a course); a plan limit pauses it until the reset time it reports, and free AI carries on meanwhile.
+
+**Claude Code flags (2.1.292):** `-p … --mcp-config <json> --strict-mcp-config --tools "" --allowedTools mcp__study-tracker --no-session-persistence --output-format json`. With `--tools ""` the MCP tools stay callable and Read, Bash and the rest are gone. **Found while verifying:** Claude Code negotiates MCP protocol 2026-07-28, which requires `ttlMs` and `cacheScope` on list results; without them it dropped every Study Tracker tool. The server now sends both.
+
+**Rendering:** lessons and notebook pages are drawn by LessonKit, a page with marked and KaTeX bundled in the app (MIT), in a web view with a strict CSP, a private `lessonkit:` scheme serving only its own folder, no persistent storage and links that ask first. Drawings pass `SVGSanitizer` (an element and attribute whitelist; colours become `currentColor`).
+
+**Removed from the app (data kept, still exported):** Today, Inbox, the Study hub and Insights; per-lecture processing; Cornell sheets and their PDF renderer; handwriting photos and their check; the per-task engine pickers; the Activity popover (job history is under Settings › AI). Old links (`today`, `inbox/…`, `material/…`, `connections/…`, old course tabs) open their new homes.
+
+**Schema v6:** the migration runner turns foreign keys off outside the transaction and checks `foreign_key_check` before committing, so rebuilding `materials` can't cascade-delete chunks; the database is backed up before migrating. Verified on a copy of a real database (261 files): every count kept.
+
+**Open:** a full course build with Claude Code on a real course (the first attempt hit the plan's session limit after laying out the tool calls correctly); quality of basic notebook pages on the on-device model (definitions good, formulas sometimes invented); the App Store builder route (D17's sandboxed helper question).

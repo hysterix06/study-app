@@ -13,9 +13,19 @@ public final class StudyStore: @unchecked Sendable {
     /// Opens (and for the app, migrates) the database at the configured path.
     public static func open(paths: AppPaths = AppPaths(), actor: String = "app", migrate: Bool = true) throws -> StudyStore {
         let db = try Database(path: paths.database.path)
-        if migrate { try Migrations.migrate(db) } else { try Migrations.check(db) }
+        let store = StudyStore(db: db, paths: paths, actor: actor)
+        if migrate {
+            // A copy before any schema change, so an upgrade can always be undone.
+            let version = db.userVersion
+            if version > 0 && version < Migrations.currentVersion {
+                _ = try? store.backup(reason: "before-v\(Migrations.currentVersion)")
+            }
+            try Migrations.migrate(db)
+        } else {
+            try Migrations.check(db)
+        }
         paths.ensureFolders()
-        return StudyStore(db: db, paths: paths, actor: actor)
+        return store
     }
 
     public static func inMemory(root: URL? = nil) throws -> StudyStore {
