@@ -6,7 +6,8 @@ import StudyCore
 /// Development aid: `-snapshotDir /path -snapshotRoutes today,calendar/month,course/*/concepts` renders the main
 /// window at each route to PNG files and quits. `*` picks a sample object (the course with the most concepts, the
 /// first assignment, the first lecture). `palette`, `review` and `assignments/board` open those overlays.
-/// `notebook/12` renders topic 12's notebook page by itself at full height, however tall it is.
+/// `notebook/12` renders topic 12's notebook page by itself at full height, however tall it is. `ai-activity` and
+/// `job-log/7` render the AI Activity window and job 7's log.
 /// The app draws its own window, so no screen-recording permission is involved.
 @MainActor
 enum DebugSnapshots {
@@ -21,6 +22,16 @@ enum DebugSnapshots {
                     let page = NotebookPageView(topic: t, number: model.store.topicNumbers(courseId: t.courseId)[id] ?? "",
                                                 guide: model.store.notebook(topicId: id))
                     await renderAlone(page, to: URL(fileURLWithPath: dir).appendingPathComponent("notebook-\(id).png"))
+                    continue
+                }
+                if entry == "ai-activity" {
+                    await renderAlone(AIActivityWindow().environment(model).frame(height: 1000),
+                                      to: URL(fileURLWithPath: dir).appendingPathComponent("ai-activity.png"))
+                    continue
+                }
+                if entry.hasPrefix("job-log/"), let id = Int(entry.dropFirst("job-log/".count)) {
+                    await renderAlone(JobLogSheet(jobId: id).environment(model).frame(height: 520),
+                                      to: URL(fileURLWithPath: dir).appendingPathComponent("job-log-\(id).png"))
                     continue
                 }
                 UserDefaults.standard.set(false, forKey: "assignments.board")

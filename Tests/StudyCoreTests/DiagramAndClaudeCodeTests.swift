@@ -176,6 +176,24 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("stdin.txt"), encoding: .utf8), "The slides…")
     }
 
+    func testTheActivityLogSeesEachRequestAndClaudeCodesCommand() async throws {
+        let started = LockedBox<[(Int32, [String])]>([])
+        let events = LockedBox<[String]>([])
+        let cli = ClaudeCodeProvider(cli: try fakeCLI(), workingDirectory: dir) { pid, args in started.value.append((pid, args)) }
+        let p = ObservedProvider(cli) { e in
+            switch e {
+            case .request(let r): events.value.append("request \(r.model)")
+            case .reply(let r, _): events.value.append("reply \(r.usage.outputTokens)")
+            case .failed(let m, _): events.value.append("failed \(m)")
+            }
+        }
+        _ = try await p.send(ChatRequest(model: "sonnet", messages: [.user("hi")]))
+        XCTAssertEqual(events.value, ["request sonnet", "reply 400"])
+        XCTAssertEqual(started.value.count, 1)
+        XCTAssertGreaterThan(started.value[0].0, 0, "the process to watch")
+        XCTAssertTrue(started.value[0].1.contains("-p"), "the exact command line")
+    }
+
     func testDropsAFlagAnOlderCLIRejects() async throws {
         let p = ClaudeCodeProvider(cli: try fakeCLI(reject: "--safe-mode"), workingDirectory: dir)
         let r = try await p.send(ChatRequest(model: "haiku", messages: [.user("hi")]))

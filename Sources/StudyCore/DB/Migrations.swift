@@ -5,7 +5,7 @@ import Foundation
 public enum Migrations {
     public static var currentVersion: Int { all.count }
 
-    public static let all: [String] = [v1, v2, v3, v4, v5, v6]
+    public static let all: [String] = [v1, v2, v3, v4, v5, v6, v7]
 
     /// Runs every migration after the database's version, up to `target` (tests stop early to build old databases).
     ///
@@ -762,5 +762,21 @@ public enum Migrations {
       WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(
         COALESCE((SELECT value FROM settings WHERE key = 'inbox_skipped_materials'), '[]')));
     DELETE FROM settings WHERE key = 'inbox_skipped_materials';
+    """
+
+    /// The student steers AI work: a job can be paused (it waits until they resume it), and every job keeps a log of
+    /// what it did (each request and reply, progress, and the student's own pauses), so the Activity window can show it.
+    static let v7 = """
+    ALTER TABLE claude_jobs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TABLE job_events (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL REFERENCES claude_jobs(id) ON DELETE CASCADE,
+      at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+      kind TEXT NOT NULL,
+      text TEXT NOT NULL,
+      file TEXT
+    );
+    CREATE INDEX job_events_job ON job_events(job_id, id);
     """
 }

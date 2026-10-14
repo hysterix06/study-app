@@ -130,7 +130,7 @@ swift run StudyTracker      # runs without bundling (notifications need the .app
 | `Resources/LessonKit` | The lesson renderer (and notebook printing): a page with marked and KaTeX, bundled (no network) |
 | `Resources/Licenses` | Licences for bundled third-party code (SwiftMath) |
 | `Tests/StudyCoreTests` | Tests and fixtures (sample Outlook, Moodle and shift `.ics` files; PPTX, DOCX and PDF files are generated during tests) |
-| `scripts/` | `build-app.sh`, plus `make_icon.py`, which generates the app icon from code |
+| `scripts/` | `build-app.sh`; `trust-signing-key.sh`, run once so codesign stops asking for your password on every build; and `make_icon.py`, which generates the app icon from code |
 
 [docs/SPEC.md](docs/SPEC.md) is the original specification. [docs/decisions.md](docs/decisions.md) records every change from it and the reason for each one; D18 is the notebook-first redesign.
 

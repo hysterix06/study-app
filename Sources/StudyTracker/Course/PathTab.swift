@@ -52,6 +52,7 @@ struct PathTab: View {
 /// Who built the path, what the course builder is doing now, and the way to a fuller version.
 struct BuilderStatus: View {
     @Environment(AppModel.self) var model
+    @Environment(\.openWindow) var openWindow
     var course: Course
     var path: CoursePath
 
@@ -63,8 +64,13 @@ struct BuilderStatus: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(path.tierLabel + (path.tier == "full" ? path.builtWith.map { " · \($0)" } ?? "" : "")).font(.stBodyStrong)
                 if let active {
-                    Text(model.jobs.running["builder"] == active.id ? (model.jobs.statusLine ?? active.label) : "\(active.label): waiting its turn")
-                        .font(.stSmall).foregroundStyle(Theme.textSecondary)
+                    HStack(spacing: 8) {
+                        Text(model.jobs.running["builder"] == active.id ? (model.jobs.statusLine ?? active.label)
+                             : "\(active.label): \(active.paused ? "paused" : "waiting its turn")")
+                            .font(.stSmall).foregroundStyle(Theme.textSecondary)
+                        Button("Details") { openWindow(id: AIActivityWindow.id) }.buttonStyle(.borderless).font(.stSmall)
+                            .help("See what the course builder is doing, and pause, delay or cancel it.")
+                    }
                 } else if path.stale {
                     Text("New course files arrived; the path updates once they've all come in.").font(.stSmall).foregroundStyle(Theme.textSecondary)
                 } else if path.tier == "skeleton" {

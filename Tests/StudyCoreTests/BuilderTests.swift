@@ -209,6 +209,16 @@ final class CourseBuilderTests: XCTestCase {
         XCTAssertFalse(store.builderStepFailedRecently(step, now: Date().addingTimeInterval(13 * 3600)), "tried again after half a day")
     }
 
+    func testAStepTheStudentCanceledIsntQueuedStraightBack() throws {
+        let step = try XCTUnwrap(store.nextBuilderStep(courseId: ids.hm, tier: "basic"))
+        let replaced = try job(.buildPathBasic, engine: "apple.ondevice")
+        try store.setJobState(replaced, .canceled, error: "Replaced by the course builder.")
+        XCTAssertFalse(store.builderStepFailedRecently(step), "the app's own cancels don't hold anything up")
+        let j = try job(.buildPathBasic, engine: "apple.ondevice")
+        try store.setJobState(j, .canceled, error: ClaudeJob.canceledByStudent)
+        XCTAssertTrue(store.builderStepFailedRecently(step), "the student's cancel sticks")
+    }
+
     func testNotebookPicturesPreferDataTheAppDraws() throws {
         XCTAssertFalse(call("save_path", ["course_id": ids.hm, "units": twoUnits()]).isError)
         let topic = store.topics(courseId: ids.hm)[0]

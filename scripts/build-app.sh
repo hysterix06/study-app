@@ -106,7 +106,8 @@ PLIST
 # Mac's password again. A real certificate keeps "Always Allow" working across rebuilds. SIGN_IDENTITY overrides.
 SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
-if [[ "$SIGN_IDENTITY" == "-" ]]; then echo "→ Signing (ad hoc; expect Keychain prompts after each rebuild)"; else echo "→ Signing as $SIGN_IDENTITY"; fi
+if [[ "$SIGN_IDENTITY" == "-" ]]; then echo "→ Signing (ad hoc; expect Keychain prompts after each rebuild)"
+else echo "→ Signing as $SIGN_IDENTITY (if macOS asks for your password here, run scripts/trust-signing-key.sh once)"; fi
 codesign --force --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/study-mcp"
 codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"

@@ -12,6 +12,8 @@ import StudyMCPCore
 ///   every engine has failed, a course-building job falls back to its basic version on free AI.
 /// - Jobs survive a relaunch, and nothing is ever handed to the clipboard without the student asking.
 /// - Work the app starts on its own (new files) is quiet: no toasts, and it pauses while the student is in a session.
+/// - The student steers it in the Activity window: every job logs each request and reply, and can be paused, delayed,
+///   moved to the front or canceled; all AI can be paused for a while.
 @MainActor
 @Observable
 final class AIJobRunner {
@@ -20,6 +22,8 @@ final class AIJobRunner {
     /// Queue lane → the job running in it.
     private(set) var running: [String: Int] = [:]
     private(set) var progress: [Int: String] = [:]
+    /// Goes up with every new line in a job's log, so the Activity window redraws.
+    private(set) var logTick = 0
     private var timer: Timer?
 
     init(model: AppModel) {
@@ -47,6 +51,7 @@ final class AIJobRunner {
 
     /// One quiet line for the window: what the AI is doing now.
     var statusLine: String? {
+        if let until = store.aiPausedUntil, until > Date() { return "AI paused " + Self.until(until) }
         if let id = running["builder"], let job = store.job(id) {
             if let p = store.builderProgress(id), job.task.engineLane == .builder {
                 return "\(job.label) (\(p.done) of \(p.of) written)"
@@ -198,6 +203,7 @@ final class AIJobRunner {
     /// Starts the next job in each lane that's free. While the student is in a session, everyday work waits unless
     /// they're waiting for it.
     func pump() {
+        guard !store.aiPaused() else { return }
         for lane in ["everyday", "builder"] where running[lane] == nil {
             let urgentOnly = lane == "everyday" && model.studying
             guard let job = store.nextQueuedJob(lane: lane, maxPriority: urgentOnly ? 0 : .max) else { continue }
@@ -212,6 +218,7 @@ final class AIJobRunner {
         progress[job.id] = nil
         try? store.setJobEngine(job.id, mode: .automatic, engine: ref.string)
         try? store.setJobState(job.id, .running)
+        log(job.id, .start, (job.attempts > 0 ? "Try \(job.attempts + 1) on " : "Started on ") + engineLabel(ref) + ".")
         model.refresh()
         tasks[job.id] = Task { [weak self] in
             guard let self else { return }
@@ -232,6 +239,7 @@ final class AIJobRunner {
                 store.setSetting("ai_builder_paused_reason", job.error.map { String($0.prefix(200)) })
             }
             try? store.setJobTask(job.id, basic)
+            log(job.id, .progress, "No course builder can run this now, so free AI writes the basic version.")
             model.refresh()
             return pump()
         }
@@ -239,6 +247,7 @@ final class AIJobRunner {
             ? "No AI engine here can do this yet. Turn on Everyday AI in Settings."
             : (job.error ?? "Every AI engine failed.")
         try? store.setJobState(job.id, .failed, error: reason)
+        log(job.id, .finish, "Failed: \(reason)")
         if !job.isQuiet { model.show("Couldn't finish \(job.task.label.lowercased()): \(reason)", error: true, link: ("Settings", .settings(.ai))) }
         model.refresh()
         pump()
@@ -248,13 +257,15 @@ final class AIJobRunner {
         var args = job.args
         args["job_id"] = "\(job.id)"
         args["quiet"] = nil
+        let logger = JobLogger(store: store, jobId: job.id, engine: engineLabel(ref)) { [weak self] in Task { @MainActor in self?.logTick += 1 } }
         let provider: LLMProvider
         let modelId: String
         if ref.isCLI {
             // Claude Code is a plain text engine here: no tools, no MCP servers, none of the student's own setup, and
             // canceling the job stops its process. It runs only the course builder's full steps.
             guard let cli = ai.claudeCLI() else { throw AIError.unavailable("Claude Code wasn't found.") }
-            provider = ClaudeCodeProvider(cli: cli, workingDirectory: ai.claudeWorkingDirectory, timeout: 15 * 60, effort: nil)
+            provider = ClaudeCodeProvider(cli: cli, workingDirectory: ai.claudeWorkingDirectory, timeout: 15 * 60, effort: nil,
+                                          onStart: { logger.processStarted(pid: $0, arguments: $1) })
             modelId = ai.claudeModel
         } else {
             provider = try ai.provider(ref)
@@ -267,9 +278,14 @@ final class AIJobRunner {
         let builder = job.task.engineLane == .builder
         // Usage is recorded for every engine, Claude Code included (it bills the student's plan), and capped per job.
         let meter = StoreUsageMeter(store: store, jobId: job.id, tokenCap: builder ? 1_500_000 : nil)
-        let pipelines = Pipelines(provider: provider, model: modelId, host: host, store: store, meter: meter)
+        // Every request and reply goes to the job's log (a tool loop on Apple's model runs its tools itself, unwrapped).
+        let observed = ObservedProvider(provider) { logger.observe($0) }
+        let pipelines = Pipelines(provider: observed, model: modelId, host: host, store: store, meter: meter)
         let id = job.id
-        let report: @Sendable (String) -> Void = { [weak self] text in Task { @MainActor in self?.progress[id] = text } }
+        let report: @Sendable (String) -> Void = { [weak self] text in
+            logger.progress(text)
+            Task { @MainActor in self?.progress[id] = text }
+        }
         func material() throws -> Int {
             guard let mid = Int(job.args["material_id"] ?? "") else { throw AIError.badResponse("No file for this job.") }
             return mid
@@ -301,7 +317,8 @@ final class AIJobRunner {
             guard !ref.isCLI, let prompt = job.task.prompt else { throw AIError.unavailable("\(job.task.label) doesn't run in the background.") }
             report("Working")
             var messages: [ChatMessage] = [.system(Prompts.studyRules), .user(try Prompts.render(prompt, args: args, store: store))]
-            let (reply, _) = try await AgentLoop(provider: provider, model: modelId, host: host, limits: AgentLimits(), meter: meter).run(&messages, stream: false)
+            let loopProvider: LLMProvider = provider is ToolRunningProvider ? provider : observed
+            let (reply, _) = try await AgentLoop(provider: loopProvider, model: modelId, host: host, limits: AgentLimits(), meter: meter).run(&messages, stream: false)
             return reply.text
         }
         return ([r.summary] + r.warnings.prefix(2)).joined(separator: "\n")
@@ -312,9 +329,11 @@ final class AIJobRunner {
         running[lane] = nil
         progress[id] = nil
         guard let job = store.job(id) else { return pump() }
-        if job.state == .canceled { model.refresh(); return pump() }
+        // Canceled, paused or delayed by the student while it ran: that already decided what happens next.
+        if job.state == .canceled || job.state == .queued { model.refresh(); return pump() }
         if job.state == .done {
             // Its own save finished it while the model was still wrapping up; whatever happened after doesn't matter.
+            log(id, .finish, "Done. \(job.resultSummary ?? "")")
             afterSuccess(job)
             model.refresh()
             return pump()
@@ -326,9 +345,11 @@ final class AIJobRunner {
             let p = store.builderProgress(id)
             let message = p.map { "Stopped after writing \($0.done) of \($0.of)." } ?? "Stopped before saving the course path."
             try? store.requeueJob(id, failedEngine: job.attempts >= 1 ? engine.string : nil, error: message)
+            log(id, .error, message + " What it wrote is kept; the next run writes the rest.")
         case .success(let reply):
             let summary = store.job(id)?.resultSummary ?? reply.split(separator: "\n").first.map { String($0.prefix(160)) }
             try? store.setJobState(id, .done, summary: summary)
+            log(id, .finish, "Done. \(summary ?? "")")
             afterSuccess(job)
             if !job.isQuiet { model.show("\(job.task.label): done. \(summary ?? "")") }
         case .failure(let e):
@@ -337,24 +358,36 @@ final class AIJobRunner {
             switch error {
             case .canceled:
                 try? store.setJobState(id, .canceled)
+                log(id, .finish, "Canceled.")
             case .rateLimited(let wait) where job.attempts < 5:
-                let delay = max(wait ?? 0, min(30 * pow(2, Double(job.attempts)), 1_800))
-                try? store.requeueJob(id, notBefore: Date().addingTimeInterval(delay), error: message)
+                let retry = Date().addingTimeInterval(max(wait ?? 0, min(30 * pow(2, Double(job.attempts)), 1_800)))
+                try? store.requeueJob(id, notBefore: retry, error: message)
+                log(id, .error, "\(message) Trying again \(Self.until(retry)).")
             case .network where job.attempts < 5:
-                try? store.requeueJob(id, notBefore: Date().addingTimeInterval(min(30 * pow(2, Double(job.attempts)), 1_800)), error: message)
+                let retry = Date().addingTimeInterval(min(30 * pow(2, Double(job.attempts)), 1_800))
+                try? store.requeueJob(id, notBefore: retry, error: message)
+                log(id, .error, "\(message) Trying again \(Self.until(retry)).")
             case .quotaExhausted(_, let reset) where job.task.engineLane == .builder:
                 // The student's Claude plan is used up for now: free AI builds the basic version meanwhile, and the
                 // course builder picks up again once the limit lifts.
-                store.builderPausedUntil = reset ?? Date().addingTimeInterval(6 * 3600)
+                let until = reset ?? Date().addingTimeInterval(6 * 3600)
+                store.builderPausedUntil = until
                 store.setSetting("ai_builder_paused_reason", "your Claude plan's usage limit was reached")
                 try? store.requeueJob(id, failedEngine: engine.string, error: message)
+                log(id, .error, "\(message) The course builder waits \(Self.until(until)); free AI writes basic versions meanwhile.")
             case .quotaExhausted(_, let reset):
                 // Another engine may still have free requests; if not, this one is tried again when its allowance resets.
                 let others = ai.candidates(for: job.task).filter { !job.enginesTried.contains($0.string) && $0 != engine }
-                if others.isEmpty, let reset { try? store.requeueJob(id, notBefore: reset, error: message) }
-                else { try? store.requeueJob(id, failedEngine: engine.string, error: message) }
+                if others.isEmpty, let reset {
+                    try? store.requeueJob(id, notBefore: reset, error: message)
+                    log(id, .error, "\(message) Trying again \(Self.until(reset)).")
+                } else {
+                    try? store.requeueJob(id, failedEngine: engine.string, error: message)
+                    log(id, .error, "\(message) Moving on to the next engine.")
+                }
             default:
                 try? store.requeueJob(id, failedEngine: engine.string, error: message)
+                log(id, .error, "\(message) Moving on to the next engine.")
             }
         }
         model.refresh()
@@ -509,10 +542,92 @@ final class AIJobRunner {
 
     // MARK: Job actions
 
+    /// Stops a job for good. A course-building step the student canceled isn't queued again for a while (12 hours).
     func cancel(_ id: Int) {
-        try? store.setJobState(id, .canceled)
+        try? store.setJobState(id, .canceled, error: ClaudeJob.canceledByStudent)
+        log(id, .control, ClaudeJob.canceledByStudent + (tasks[id] != nil ? " The request in progress was stopped." : ""))
         tasks[id]?.cancel()
         model.refresh()
+    }
+
+    /// Holds a job until the student resumes it. A running job stops now; its step starts over when it runs again.
+    func pause(_ id: Int) {
+        try? store.pauseJob(id)
+        log(id, .control, "Paused by you. It waits until you resume it." + (tasks[id] != nil ? " The request in progress was stopped." : ""))
+        tasks[id]?.cancel()
+        model.refresh()
+        pump()
+    }
+
+    /// Starts a job later. A running job stops now; its step starts over then.
+    func delay(_ id: Int, until: Date) {
+        try? store.delayJob(id, until: until)
+        log(id, .control, "Delayed by you until \(Self.time(until))." + (tasks[id] != nil ? " The request in progress was stopped." : ""))
+        tasks[id]?.cancel()
+        model.refresh()
+        pump()
+    }
+
+    func resume(_ id: Int) {
+        try? store.resumeJob(id)
+        log(id, .control, "Resumed by you.")
+        model.refresh()
+        pump()
+    }
+
+    /// Next in its lane, even during a session.
+    func runNext(_ id: Int) {
+        try? store.runJobNext(id)
+        log(id, .control, "Moved to the front by you.")
+        model.refresh()
+        pump()
+    }
+
+    /// Nothing starts until `until` (`Date.distantFuture`: until the student resumes). Running jobs stop now and wait.
+    func pauseAll(until: Date) {
+        store.aiPausedUntil = until
+        for id in running.values {
+            try? store.setJobState(id, .queued)
+            log(id, .control, "Stopped: you paused AI. It starts over when AI resumes.")
+            tasks[id]?.cancel()
+        }
+        model.refresh()
+    }
+
+    func resumeAll() {
+        store.aiPausedUntil = nil
+        model.refresh()
+        pump()
+    }
+
+    /// Lifts the course builder's own pause (after the student's Claude plan ran out) before its time.
+    func resumeBuilder() {
+        store.builderPausedUntil = nil
+        store.setSetting("ai_builder_paused_reason", nil)
+        model.refresh()
+        buildCourses()
+        pump()
+    }
+
+    private func engineLabel(_ ref: EngineRef) -> String { ref.isCLI ? "Claude Code (\(ai.claudeModel))" : ref.displayName }
+
+    private func log(_ id: Int, _ kind: JobEvent.Kind, _ text: String) {
+        store.addJobEvent(id, kind, text)
+        logTick += 1
+    }
+
+    /// "at 6:00 PM", "tomorrow at 8:00 AM", "until you resume".
+    static func until(_ date: Date) -> String {
+        if date.timeIntervalSinceNow > 365 * 86400 { return "until you resume it" }
+        return "until " + time(date)
+    }
+
+    static func time(_ date: Date) -> String {
+        let cal = Calendar.current
+        let t = date.formatted(date: .omitted, time: .shortened)
+        if cal.isDateInToday(date) { return t }
+        if cal.isDateInTomorrow(date) { return "tomorrow at \(t)" }
+        return date.formatted(.dateTime.weekday(.wide).hour().minute())
     }
 
     func markDone(_ id: Int) {
@@ -555,3 +670,77 @@ final class AIJobRunner {
 
 /// A copy-and-paste job waiting for the student's chatbot answer.
 struct PasteRequest: Identifiable { var jobId: Int; var id: Int { jobId } }
+
+/// Writes a running job's log: each request and reply (their full text goes to `AI log/job-<id>/`), Claude Code's
+/// command line, and progress. Called from the job's own task, off the main thread.
+final class JobLogger: @unchecked Sendable {
+    private let store: StudyStore
+    private let jobId: Int
+    /// "Claude Code (sonnet)": Apple's models all call themselves "system".
+    private let engine: String
+    private let folder: URL
+    private let changed: @Sendable () -> Void
+    private let lock = NSLock()
+    private var requests: Int
+    private var lastProgress: String?
+
+    init(store: StudyStore, jobId: Int, engine: String, changed: @escaping @Sendable () -> Void) {
+        self.store = store; self.jobId = jobId; self.engine = engine; self.changed = changed
+        folder = store.paths.aiLog.appendingPathComponent("job-\(jobId)")
+        // A retry numbers on from the last run, so its files don't overwrite the earlier ones.
+        requests = store.jobEvents(jobId).filter { $0.kind == .request }.count
+    }
+
+    func progress(_ text: String) {
+        let isNew = lock.withLock { () -> Bool in
+            defer { lastProgress = text }
+            return lastProgress != text
+        }
+        if isNew { log(.progress, text) }
+    }
+
+    func observe(_ event: ObservedProvider.Event) {
+        switch event {
+        case .request(let r):
+            let n = lock.withLock { requests += 1; return requests }
+            var text = r.messages.map { "──── \($0.role.rawValue) ────\n\($0.text)" }.joined(separator: "\n\n")
+            if let schema = r.responseSchema { text += "\n\n──── reply format: \(schema.name) ────\n\(schema.schema.serialized())" }
+            log(.request, "Request \(n) sent to \(engine): about \(Self.tokens(text.count / 4)) tokens.", file: save(text, "\(n) prompt.txt"))
+        case .reply(let r, let seconds):
+            let n = lock.withLock { requests }
+            var line = "Reply \(n) after \(Self.duration(seconds)): \(Self.tokens(r.usage.inputTokens)) tokens in, \(Self.tokens(r.usage.outputTokens)) out."
+            if r.finishReason == "length" { line += " It was cut off at the length limit." }
+            log(.reply, line, file: save(r.text, "\(n) reply.txt"))
+        case .failed(let message, let seconds):
+            let n = lock.withLock { requests }
+            log(.error, "Request \(n) failed after \(Self.duration(seconds)): \(message)")
+        }
+    }
+
+    /// The exact command, with the long values (the instructions) shortened; they're in the prompt file.
+    func processStarted(pid: Int32, arguments: [String]) {
+        let shown = arguments.map { a -> String in
+            if a.count > 60 { return "<\(a.count) characters>" }
+            return a.isEmpty || a.contains(" ") || a.contains("{") ? "'\(a)'" : a
+        }
+        log(.progress, "Claude Code is running as process \(pid): claude \(shown.joined(separator: " "))")
+    }
+
+    private func log(_ kind: JobEvent.Kind, _ text: String, file: String? = nil) {
+        store.addJobEvent(jobId, kind, text, file: file)
+        changed()
+    }
+
+    private func save(_ text: String, _ name: String) -> String? {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(name)
+        guard (try? text.write(to: url, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return store.paths.relative(url)
+    }
+
+    static func tokens(_ n: Int) -> String { n >= 10_000 ? "\(n / 1000)k" : n >= 1000 ? String(format: "%.1fk", Double(n) / 1000) : "\(n)" }
+
+    static func duration(_ s: TimeInterval) -> String {
+        s < 60 ? "\(Int(s.rounded())) s" : String(format: "%d:%02d", Int(s) / 60, Int(s) % 60)
+    }
+}

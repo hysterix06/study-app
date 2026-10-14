@@ -128,6 +128,7 @@ final class AppModel {
         store.backupIfOlderThan(hours: 20, reason: "daily")
         store.pruneChats(olderThanDays: ai.settings.chatRetentionDays)
         store.purgeTrash()
+        store.pruneAILog()
         Task { await syncFeeds(silent: true) }
         if store.boolSetting("moodle_enabled"), let last = store.setting("moodle_last_sync").flatMap({ ISO.parse($0) }) {
             if Date().timeIntervalSince(last) > 3 * 3600 { Task { await moodle.sync(silent: true) } }

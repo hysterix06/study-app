@@ -234,10 +234,13 @@ public struct ClaudeCodeProvider: LLMProvider {
     public let timeout: TimeInterval
     /// Claude Code's `--effort`: low for reading files, nil (its default) for building a course.
     public let effort: String?
+    /// Called when each `claude` process starts, with its process ID and command line, for the Activity window.
+    public let onStart: (@Sendable (_ pid: Int32, _ arguments: [String]) -> Void)?
     public var descriptor: ProviderDescriptor { Self.descriptor }
 
-    public init(cli: URL, workingDirectory: URL, timeout: TimeInterval = 10 * 60, effort: String? = "low") {
-        self.cli = cli; self.workingDirectory = workingDirectory; self.timeout = timeout; self.effort = effort
+    public init(cli: URL, workingDirectory: URL, timeout: TimeInterval = 10 * 60, effort: String? = "low",
+                onStart: (@Sendable (_ pid: Int32, _ arguments: [String]) -> Void)? = nil) {
+        self.cli = cli; self.workingDirectory = workingDirectory; self.timeout = timeout; self.effort = effort; self.onStart = onStart
     }
 
     /// The conversation as one prompt: the system text replaces Claude Code's own instructions, the rest is a
@@ -261,8 +264,12 @@ public struct ClaudeCodeProvider: LLMProvider {
             CLIRunner.Flag(name: "--max-turns", values: ["2"]),
         ]
         let running = RunningProcess()
+        let onStart = self.onStart
         let output = try await withTaskCancellationHandler {
-            try await CLIRunner.runClaudeCLI(cli, flags: flags, input: Data(prompt.utf8), directory: workingDirectory, timeout: timeout) { running.set($0) }
+            try await CLIRunner.runClaudeCLI(cli, flags: flags, input: Data(prompt.utf8), directory: workingDirectory, timeout: timeout) { p in
+                running.set(p)
+                onStart?(p.processIdentifier, p.arguments ?? [])
+            }
         } onCancel: { running.terminate() }
         if Task.isCancelled { throw AIError.canceled }
         // Not a network error: those are retried, and a stuck request shouldn't be paid for three times.

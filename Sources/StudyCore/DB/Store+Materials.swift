@@ -224,7 +224,9 @@ public extension StudyStore {
             audit("delete_material", entity: "material", id: id, detail: m.title)
         }
         if removeFiles {
-            if let sp = m.storedPath { try? FileManager.default.trashItem(at: paths.absolute(sp), resultingItemURL: nil) }
+            // The app's own copy (imports copy files in). Not the macOS Trash: tests and sample data delete files
+            // here, and the student's deletes go through Recently Deleted instead.
+            if let sp = m.storedPath { try? FileManager.default.removeItem(at: paths.absolute(sp)) }
             if let ap = m.assetsPath { try? FileManager.default.removeItem(at: paths.absolute(ap)) }
         }
     }

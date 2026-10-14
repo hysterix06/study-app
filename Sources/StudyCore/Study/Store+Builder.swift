@@ -86,14 +86,15 @@ public extension StudyStore {
     }
 
     /// A step that failed lately isn't tried again straight away (a course with nothing to read, a model that keeps
-    /// answering badly): it waits `hours` before the next try.
+    /// answering badly), and neither is one the student canceled: it waits `hours` before the next try.
     func builderStepFailedRecently(_ step: BuilderStep, hours: Double = 12, now: Date = Date()) -> Bool {
         let since = ISO.instant(now.addingTimeInterval(-hours * 3600))
         let tasks = [step.task.rawValue] + (step.task.degradesTo.map { [$0.rawValue] } ?? [])
         let rows = (try? db.query("""
-            SELECT args_json FROM claude_jobs WHERE course_id = ? AND state = 'failed' AND finished_at >= ?
+            SELECT args_json FROM claude_jobs WHERE course_id = ? AND finished_at >= ?
+              AND (state = 'failed' OR (state = 'canceled' AND error = ?))
               AND task IN (\(tasks.map { _ in "?" }.joined(separator: ",")))
-            """, [step.courseId, since] + tasks)) ?? []
+            """, [step.courseId, since, ClaudeJob.canceledByStudent] + tasks)) ?? []
         let topics = Set(step.topicIds)
         return rows.contains { row in
             let ids = (JSON.parse(row.str("args_json")) as? [String: String])?["topic_ids"]?.split(separator: ",").compactMap { Int($0) } ?? []

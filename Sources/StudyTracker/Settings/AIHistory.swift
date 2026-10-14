@@ -5,6 +5,7 @@ import StudyAI
 /// AI jobs, newest first: what was done, is running, or is waiting on the student.
 struct ActivityList: View {
     @Environment(AppModel.self) var model
+    @Environment(\.openWindow) var openWindow
     var limit = 50
     var highlight: Int? = nil
 
@@ -15,6 +16,8 @@ struct ActivityList: View {
             HStack {
                 Text("AI activity").font(.stBodyStrong)
                 Spacer()
+                Button("Open AI Activity (⇧⌘A)") { openWindow(id: AIActivityWindow.id) }
+                    .buttonStyle(.borderless).font(.stSmall)
                 if limit < 50 {
                     Button("Full history") { model.go(.settings(.ai)) }
                         .buttonStyle(.borderless).font(.stSmall)
@@ -37,6 +40,7 @@ struct JobRow: View {
     @Environment(AppModel.self) var model
     var job: ClaudeJob
     var highlighted = false
+    @State private var showLog = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -76,11 +80,13 @@ struct JobRow: View {
                 }
                 if job.state == .failed || job.state == .canceled { Button("Retry") { model.jobs.retry(job.id) } }
                 if job.state.isActive { Button("Cancel") { model.jobs.cancel(job.id) } }
+                if job.mode == .automatic { Button("Log") { showLog = true }.help("Every request and reply, with the exact text.") }
             }
             .buttonStyle(.borderless).font(.stSmall)
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: Theme.corner(7)).fill(highlighted ? Theme.attention.opacity(0.08) : Theme.fillSubtle))
+        .sheet(isPresented: $showLog) { JobLogSheet(jobId: job.id).themedSheet() }
     }
 
     static func engineName(_ job: ClaudeJob) -> String {

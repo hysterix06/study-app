@@ -67,6 +67,12 @@ struct StudyTrackerApp: App {
             if let model { SettingsWindow().environment(model).canvasBackground().themed() }
         }
 
+        Window("AI Activity", id: AIActivityWindow.id) {
+            if let model { AIActivityWindow().environment(model).canvasBackground().themed() }
+        }
+        .defaultSize(width: 720, height: 760)
+        .keyboardShortcut("a", modifiers: [.command, .shift])
+
         MenuBarExtra {
             if let model { MenuBarView().environment(model).canvasBackground().themed() }
         } label: {
@@ -81,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     static func makeModel() -> AppModel? {
+        Keychain.adoptsItems = true
         do {
             let store = try StudyStore.open()
             seedDefaults(store)
@@ -188,13 +195,14 @@ struct RootView: View {
     }
 }
 
-/// The quiet line in the toolbar: what the AI is doing now, with its history in Settings › AI.
+/// The quiet line in the toolbar: what the AI is doing now. It opens the AI Activity window.
 struct AIStatusLine: View {
     @Environment(AppModel.self) var model
+    @Environment(\.openWindow) var openWindow
     var body: some View {
         let _ = model.revision
         let failed = model.store.jobsNeedingAttention().filter { $0.state == .failed && !$0.isQuiet }.count
-        Button { model.go(.settings(.ai)) } label: {
+        Button { openWindow(id: AIActivityWindow.id) } label: {
             HStack(spacing: 6) {
                 if model.jobs.isRunning { ProgressView().controlSize(.mini) }
                 if let line = model.jobs.statusLine { Text(line).font(.stSmall).lineLimit(1).frame(maxWidth: 260) }
@@ -203,7 +211,7 @@ struct AIStatusLine: View {
             }.foregroundStyle(failed > 0 && model.jobs.statusLine == nil ? Theme.attention : Theme.textSecondary)
         }
         .buttonStyle(.borderless)
-        .help("AI activity and settings")
+        .help("AI activity: what the AI is doing, with pause and cancel (⇧⌘A)")
     }
 }
 

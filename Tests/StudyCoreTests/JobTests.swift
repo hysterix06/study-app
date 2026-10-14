@@ -87,6 +87,49 @@ final class JobTests: XCTestCase {
         XCTAssertNil(store.nextQueuedJob(lane: "everyday"))
     }
 
+    func testTheStudentPausesDelaysAndReordersJobs() throws {
+        let sort = try job(.sortFiles, 1)
+        let practice = try job(.extractPractice, 2)
+        let exam = try job(.extractExam, 3)
+        try store.pauseJob(sort)
+        XCTAssertTrue(try XCTUnwrap(store.job(sort)).paused)
+        XCTAssertEqual(store.nextQueuedJob(lane: "everyday")?.id, exam, "a paused job never starts")
+        XCTAssertNil(store.nextJobWake(), "nor wakes the runner")
+        XCTAssertEqual(store.queuedJobCount(lane: "everyday"), 2, "and isn't counted as waiting")
+        let now = Date()
+        try store.delayJob(exam, until: now.addingTimeInterval(3600))
+        XCTAssertEqual(store.nextQueuedJob(lane: "everyday", now: now)?.id, practice)
+        XCTAssertEqual(store.nextQueuedJob(lane: "everyday", now: now.addingTimeInterval(3601))?.id, exam, "a delayed job starts on time")
+        XCTAssertEqual(store.upcomingJobs(now: now).map(\.id), [practice, exam, sort], "ready, then delayed, then paused")
+        try store.runJobNext(sort)
+        XCTAssertEqual(store.nextQueuedJob(lane: "everyday", now: now, maxPriority: 0)?.id, sort, "run next resumes it at the front, even in a session")
+        try store.setJobState(practice, .running)
+        try store.pauseJob(practice)
+        XCTAssertEqual(store.job(practice)?.state, .queued, "pausing a running job puts it back in the queue")
+        try store.resumeJob(practice)
+        XCTAssertFalse(try XCTUnwrap(store.job(practice)).paused)
+        try store.setJobState(practice, .done)
+        try store.pauseJob(practice)
+        XCTAssertFalse(try XCTUnwrap(store.job(practice)).paused, "a finished job stays finished")
+    }
+
+    func testPausingAllAIAndTheJobLog() throws {
+        XCTAssertFalse(store.aiPaused())
+        store.aiPausedUntil = .distantFuture
+        XCTAssertTrue(store.aiPaused(), "until the student resumes it")
+        store.aiPausedUntil = Date().addingTimeInterval(-1)
+        XCTAssertFalse(store.aiPaused(), "a timed pause ends by itself")
+        let id = try job(.sortFiles)
+        store.addJobEvent(id, .request, "Request 1 sent to sonnet.", file: "AI log/job-\(id)/1 prompt.txt")
+        store.addJobEvent(id, .reply, "Reply 1 after 12 s.")
+        let log = store.jobEvents(id)
+        XCTAssertEqual(log.map(\.kind), [.request, .reply], "oldest first")
+        XCTAssertEqual(log.first?.file, "AI log/job-\(id)/1 prompt.txt")
+        XCTAssertEqual(store.jobEvents(id, limit: 1).map(\.kind), [.reply], "the latest lines")
+        try store.db.execute("DELETE FROM claude_jobs WHERE id = ?", [id])
+        XCTAssertTrue(store.jobEvents(id).isEmpty, "the log goes with its job")
+    }
+
     func testDesktopJobFinishesOnItsFinalWrite() throws {
         let id = try store.enqueueJob(.checkDraft, args: ["assignment_id": "1"], objectKind: "assignment", objectId: 1, label: "Checking", mode: .desktop)
         try store.setJobState(id, .handedOff)

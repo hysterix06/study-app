@@ -206,6 +206,25 @@ public typealias ClaudeTask = AITask
 
 public enum JobMode: String, Codable { case automatic, desktop, chat, paste }
 
+/// A line in a job's log: what the AI was asked and answered, how far it got, and what the student did.
+public struct JobEvent: Identifiable, Hashable {
+    public enum Kind: String { case start, request, reply, progress, error, control, finish }
+    public var id: Int
+    public var jobId: Int
+    public var at: Date
+    public var kind: Kind
+    public var text: String
+    /// The full prompt or reply, relative to the root.
+    public var file: String?
+
+    init(row r: Row) {
+        id = r.i("id"); jobId = r.i("job_id")
+        at = ISO.parse(r.str("at")) ?? Date()
+        kind = Kind(rawValue: r.str("kind")) ?? .progress
+        text = r.str("text"); file = r.string("file")
+    }
+}
+
 public enum JobState: String, Codable, CaseIterable {
     case queued, running, handedOff = "handed_off", waiting, done, failed, canceled
 
@@ -254,9 +273,14 @@ public struct ClaudeJob: Identifiable, Hashable {
     public var attempts: Int
     /// Engines that already failed this job, so a retry moves on to the next one.
     public var enginesTried: [String]
-    /// Don't start before this (backing off after a rate limit).
+    /// Don't start before this (backing off after a rate limit, or delayed by the student).
     public var notBefore: Date?
     public var courseId: Int?
+    /// Held by the student: it stays in the queue but doesn't start until they resume it.
+    public var paused: Bool
+
+    /// The error a job canceled by the student carries, so the course builder doesn't queue the same step again.
+    public static let canceledByStudent = "Canceled by you."
 
     /// Started by the app on its own (sorting and reading new files): no toasts, and a failure that every engine shares
     /// becomes one Needs a look row instead of an alert.
@@ -283,6 +307,7 @@ public struct ClaudeJob: Identifiable, Hashable {
         lane = r.string("lane") ?? "everyday"; priority = r.int("priority") ?? 50; attempts = r.i("attempts")
         enginesTried = JSON.stringArray(r.string("engines_tried")); notBefore = r.string("not_before").flatMap { ISO.parse($0) }
         courseId = r.int("course_id")
+        paused = r.int("paused") == 1
     }
 
     /// "Sorted 3 files · Found 2 deadlines to confirm".
@@ -332,7 +357,7 @@ public extension StudyStore {
     /// `maxPriority` keeps a lane to urgent work (while the student is in a session, only what they're waiting for).
     func nextQueuedJob(lane: String, now: Date = Date(), maxPriority: Int = .max) -> ClaudeJob? {
         (try? db.first("""
-            SELECT * FROM claude_jobs WHERE state = 'queued' AND mode = 'automatic' AND lane = ? AND priority <= ?
+            SELECT * FROM claude_jobs WHERE state = 'queued' AND mode = 'automatic' AND lane = ? AND priority <= ? AND paused = 0
               AND (not_before IS NULL OR not_before <= ?)
             ORDER BY priority, id LIMIT 1
             """, [lane, maxPriority, ISO.instant(now)])).flatMap { $0.map(ClaudeJob.init) }
@@ -346,7 +371,7 @@ public extension StudyStore {
 
     /// When the earliest backing-off job may start, so the runner can wake up for it.
     func nextJobWake(now: Date = Date()) -> Date? {
-        (try? db.scalarString("SELECT min(not_before) FROM claude_jobs WHERE state = 'queued' AND not_before > ?", [ISO.instant(now)]))
+        (try? db.scalarString("SELECT min(not_before) FROM claude_jobs WHERE state = 'queued' AND paused = 0 AND not_before > ?", [ISO.instant(now)]))
             .flatMap { $0 }.flatMap { ISO.parse($0) }
     }
 
@@ -369,7 +394,7 @@ public extension StudyStore {
     }
 
     func queuedJobCount(lane: String? = nil) -> Int {
-        (try? db.scalarInt("SELECT count(*) FROM claude_jobs WHERE state IN ('queued','running')" + (lane == nil ? "" : " AND lane = ?"),
+        (try? db.scalarInt("SELECT count(*) FROM claude_jobs WHERE state IN ('queued','running') AND paused = 0" + (lane == nil ? "" : " AND lane = ?"),
                            lane.map { [$0] } ?? [])) ?? 0
     }
 
@@ -426,6 +451,70 @@ public extension StudyStore {
             UPDATE claude_jobs SET tokens_in = tokens_in + ?, tokens_out = tokens_out + ?,
               cost_usd = CASE WHEN ? IS NULL THEN cost_usd ELSE COALESCE(cost_usd, 0) + ? END WHERE id = ?
             """, [tokensIn, tokensOut, costUSD, costUSD, id])
+    }
+
+    // MARK: Steering (the Activity window)
+
+    /// Holds a job in the queue until the student resumes it. A running job goes back to the queue (the runner stops it).
+    func pauseJob(_ id: Int) throws {
+        try db.execute("UPDATE claude_jobs SET paused = 1, state = 'queued' WHERE id = ? AND state IN ('queued','running')", [id])
+    }
+
+    /// Back in line, ready to start.
+    func resumeJob(_ id: Int) throws {
+        try db.execute("UPDATE claude_jobs SET paused = 0, not_before = NULL WHERE id = ? AND state = 'queued'", [id])
+    }
+
+    /// Waits until `until`, then starts as usual. A running job goes back to the queue (the runner stops it).
+    func delayJob(_ id: Int, until: Date) throws {
+        try db.execute("UPDATE claude_jobs SET paused = 0, not_before = ?, state = 'queued' WHERE id = ? AND state IN ('queued','running')",
+                       [ISO.instant(until), id])
+    }
+
+    /// Next in its lane: ahead of everything else, even during a session.
+    func runJobNext(_ id: Int) throws {
+        try db.execute("UPDATE claude_jobs SET paused = 0, not_before = NULL, priority = 0 WHERE id = ? AND state = 'queued'", [id])
+    }
+
+    /// Queued jobs in the order they'll start: ready ones in queue order, then delayed ones by time, then paused ones.
+    func upcomingJobs(now: Date = Date()) -> [ClaudeJob] {
+        ((try? db.query("""
+            SELECT * FROM claude_jobs WHERE state = 'queued' AND mode = 'automatic'
+            ORDER BY paused, CASE WHEN not_before > ? THEN not_before ELSE '' END, priority, id
+            """, [ISO.instant(now)])) ?? []).map(ClaudeJob.init)
+    }
+
+    /// Nothing starts while the student has paused AI. `Date.distantFuture` means until they resume it.
+    var aiPausedUntil: Date? {
+        get { setting("ai_paused_until").flatMap { ISO.parse($0) } }
+        set { setSetting("ai_paused_until", newValue.map { ISO.instant($0) }) }
+    }
+
+    func aiPaused(now: Date = Date()) -> Bool { aiPausedUntil.map { $0 > now } ?? false }
+
+    // MARK: Job log
+
+    /// One line in a job's log. `file` is a full prompt or reply saved under `AI log/`, relative to the root.
+    func addJobEvent(_ jobId: Int, _ kind: JobEvent.Kind, _ text: String, file: String? = nil) {
+        _ = try? db.execute("INSERT INTO job_events(job_id, kind, text, file) VALUES(?,?,?,?)", [jobId, kind.rawValue, text, file])
+    }
+
+    /// A job's log, oldest first (its last `limit` lines).
+    func jobEvents(_ jobId: Int, limit: Int = 500) -> [JobEvent] {
+        ((try? db.query("SELECT * FROM (SELECT * FROM job_events WHERE job_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id", [jobId, limit])) ?? [])
+            .map(JobEvent.init)
+    }
+
+    /// Full prompts and replies are kept for two weeks; the log lines stay with their job.
+    func pruneAILog(olderThanDays days: Double = 14, now: Date = Date()) {
+        let cutoff = now.adding(days: -days)
+        let fm = FileManager.default
+        for name in (try? fm.contentsOfDirectory(atPath: paths.aiLog.path)) ?? [] {
+            let url = paths.aiLog.appendingPathComponent(name)
+            guard let modified = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date, modified < cutoff else { continue }
+            try? fm.removeItem(at: url)
+        }
+        _ = try? db.execute("UPDATE job_events SET file = NULL WHERE file IS NOT NULL AND at < ?", [ISO.instant(cutoff)])
     }
 
     /// After a relaunch: jobs that were running start again (up to six tries), and hand-offs nobody finished in a week

@@ -21,6 +21,8 @@ public struct AppPaths {
     public var export: URL { root.appendingPathComponent("Export") }
     public var captures: URL { root.appendingPathComponent("Captures") }
     public var mcpLog: URL { root.appendingPathComponent("mcp.log") }
+    /// Every prompt the AI was sent and what it answered, one folder per job, kept for two weeks.
+    public var aiLog: URL { root.appendingPathComponent("AI log") }
 
     public func ensureFolders() {
         for u in [inbox, library, backups, export, captures] {
