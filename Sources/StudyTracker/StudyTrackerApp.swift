@@ -20,6 +20,10 @@ struct StudyTrackerApp: App {
         if let i = args.firstIndex(of: "-snapshotChapter"), i + 2 < args.count, let id = Int(args[i + 1]) {
             Snapshot.chapter(id, to: URL(fileURLWithPath: args[i + 2]), option: args.dropFirst(i + 3).first)
         }
+        // `-snapshotReview out.png [answer|done] [dark]`: the first due card.
+        if let i = args.firstIndex(of: "-snapshotReview"), i + 1 < args.count {
+            Snapshot.review(to: URL(fileURLWithPath: args[i + 1]), options: Set(args.dropFirst(i + 2)))
+        }
         _model = State(initialValue: AppModel())
     }
 
@@ -35,6 +39,10 @@ struct StudyTrackerApp: App {
                 Button("Sync Now") { Task { await model.sync() } }
                     .keyboardShortcut("r", modifiers: [.command])
                     .disabled(model.moodleSite == nil || model.syncing)
+                Divider()
+                Button("Review Cards") { model.reviewing = true }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(model.dueCards == 0 || model.reviewing)
             }
         }
 
@@ -93,6 +101,22 @@ enum Snapshot {
         }
         RunLoop.main.run()
         exit(0)
+    }
+
+    static func review(to url: URL, options: Set<String>) -> Never {
+        let model = AppModel(autoSync: false)
+        let cards = model.store.dueCards()
+        let dark = options.contains("dark")
+        let content: AnyView
+        if options.contains("done") {
+            content = AnyView(ReviewDone(answered: cards.count, next: Date().addingTimeInterval(3 * 86_400)))
+        } else if let card = cards.first {
+            content = AnyView(ReviewCard(card: card, course: model.course(card.courseId), left: cards.count, showing: options.contains("answer")))
+        } else {
+            print("no cards due"); exit(1)
+        }
+        write(content.frame(width: 640, height: 460).environment(\.colorScheme, dark ? .dark : .light)
+            .background(dark ? Color(white: 0.16) : Color(white: 0.96)), to: url)
     }
 
     static func home(to url: URL, dark: Bool) -> Never {

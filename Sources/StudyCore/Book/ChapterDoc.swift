@@ -359,6 +359,7 @@ public struct ChapterDoc: Equatable {
                 ["title": s.title ?? NSNull(), "blocks": s.blocks.map(Self.blockPayload)]
             },
             "chrome": chrome,
+            "cards": cards.count,
         ]
         if let kicker { p["kicker"] = kicker }
         if let number { p["number"] = number }

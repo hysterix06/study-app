@@ -109,7 +109,10 @@
     root.classList.toggle('chrome', !!p.chrome);
     let n = 0;
     const sections = (p.sections || []).map((s, i) => sectionHTML(p, s, i, s.title ? ++n : n)).join('');
-    document.getElementById('book').innerHTML = opener(p) + sections + '<div id="end" aria-hidden="true"></div>';
+    // In the app, the end of the chapter says where its flashcards went.
+    const note = p.cards && !p.chrome
+      ? '<p class="end-note">This chapter’s ' + p.cards + ' flashcards are now in Review on Home.</p>' : '';
+    document.getElementById('book').innerHTML = opener(p) + sections + '<div id="end">' + note + '</div>';
     document.getElementById('deck').innerHTML = '';
     sizeFigures(document.getElementById('book'));
     if (presenting) { buildSlides(); go(0); }

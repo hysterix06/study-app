@@ -2,7 +2,7 @@ import Foundation
 
 /// FSRS-5 (Free Spaced Repetition Scheduler) with default parameters and short learning steps.
 /// Deterministic: no interval fuzz, so tests with fixed dates are exact.
-public enum CardState: Int, Codable { case new = 0, learning = 1, review = 2, relearning = 3
+public enum CardState: Int, Codable, Sendable { case new = 0, learning = 1, review = 2, relearning = 3
     public var label: String {
         switch self { case .new: return "New"; case .learning: return "Learning"; case .review: return "Review"; case .relearning: return "Relearning" }
     }
@@ -15,7 +15,7 @@ public enum Rating: Int, CaseIterable, Codable {
     }
 }
 
-public struct FSRSCard: Codable, Hashable {
+public struct FSRSCard: Codable, Hashable, Sendable {
     public var stability: Double = 0
     public var difficulty: Double = 0
     public var reps: Int = 0
@@ -62,12 +62,16 @@ public struct FSRS {
     public var w: [Double]
     public var requestRetention: Double
     public var maximumInterval: Double
+    /// Off, a new card answered Good goes straight to review instead of coming back in 10 minutes.
+    public var learningSteps: Bool
 
     static let decay = -0.5
     static let factor = 19.0 / 81.0
 
-    public init(weights: [Double] = FSRS.defaultWeights, requestRetention: Double = 0.9, maximumInterval: Double = 36500) {
+    public init(weights: [Double] = FSRS.defaultWeights, requestRetention: Double = 0.9, maximumInterval: Double = 36500,
+                learningSteps: Bool = true) {
         self.w = weights; self.requestRetention = requestRetention; self.maximumInterval = maximumInterval
+        self.learningSteps = learningSteps
     }
 
     public func retrievability(elapsedDays t: Double, stability s: Double) -> Double {
@@ -116,7 +120,7 @@ public struct FSRS {
                 c.difficulty = initDifficulty(rating)
                 c.reps += 1
                 c.lastReview = now
-                if rating == .easy {
+                if rating == .easy || (rating == .good && !learningSteps) {
                     c.state = .review
                     let days = nextIntervalDays(c.stability)
                     c.scheduledDays = days

@@ -19,6 +19,10 @@ final class AppModel {
     private(set) var needsSignIn = false
     /// What the book writer is doing, and whether it's paused.
     private(set) var books = BookWriter.Status()
+    /// Flashcards due now, from chapters read.
+    private(set) var dueCards = 0
+    /// The review sheet is open.
+    var reviewing = false
     /// Bumped on every reload, so views that read the store directly redraw.
     private(set) var revision = 0
     @ObservationIgnored private var timer: Timer?
@@ -45,9 +49,15 @@ final class AppModel {
         if moodleSite != nil { Task { await sync() } }
         timer = Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, let last = self.lastSync, Date().timeIntervalSince(last) >= Self.syncInterval else { return }
+                guard let self else { return }
+                self.reload()
+                guard let last = self.lastSync, Date().timeIntervalSince(last) >= Self.syncInterval else { return }
                 await self.sync()
             }
+        }
+        // Cards come due while the app sits in the background.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.reload() }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
             ChildProcesses.terminateAll()
@@ -65,6 +75,7 @@ final class AppModel {
         lastSync = store.setting("moodle_last_sync").flatMap { ISO.parse($0) }
         lastStatus = store.setting("moodle_last_status")
         needsSignIn = store.setting("moodle_needs_signin") == "1"
+        dueCards = store.dueCount()
         revision += 1
     }
 

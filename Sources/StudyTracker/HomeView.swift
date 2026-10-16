@@ -3,9 +3,11 @@ import StudyCore
 
 /// The whole app on one screen: what's due this week, and each course as a book.
 struct HomeView: View {
+    @Environment(AppModel.self) var model
     @State private var path = NavigationPath()
 
     var body: some View {
+        @Bindable var model = model
         NavigationStack(path: $path) {
             ScrollView {
                 HomeContent { path.append($0) }
@@ -17,6 +19,7 @@ struct HomeView: View {
             .navigationDestination(for: Int.self) { id in BookView(courseId: id) { path.append(ChapterRoute(courseId: id, chapterId: $0)) } }
             .navigationDestination(for: ChapterRoute.self) { r in ChapterView(courseId: r.courseId, chapterId: r.chapterId) }
         }
+        .sheet(isPresented: $model.reviewing) { ReviewView().environment(model) }
     }
 }
 
@@ -63,6 +66,12 @@ struct HomeContent: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(model.deadlines) { d in DeadlineRow(deadline: d, course: model.course(d.courseId)) }
                 }
+            }
+            if model.dueCards > 0 {
+                Button { model.reviewing = true } label: { Text("Review \(model.dueCards) card\(model.dueCards == 1 ? "" : "s")") }
+                    .buttonStyle(PillButtonStyle(prominent: true))
+                    .help("Flashcards from the chapters you've read (⇧⌘R)")
+                    .padding(.top, 6)
             }
         }
     }
