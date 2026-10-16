@@ -551,33 +551,3 @@ public enum DiagramSVG {
             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
 }
-
-// MARK: - Diagrams inside chat replies
-
-/// Splits an AI reply into text and ```diagram blocks, so a chat can draw a graph inline.
-public enum DiagramBlocks {
-    public enum Segment: Equatable {
-        case text(String)
-        case diagram(Diagram)
-        /// A diagram block still streaming in (no closing fence yet).
-        case pending
-    }
-
-    public static func split(_ text: String) -> [Segment] {
-        guard text.contains("```diagram") else { return [.text(text)] }
-        var out: [Segment] = []
-        var rest = Substring(text)
-        while let open = rest.range(of: "```diagram") {
-            let before = String(rest[..<open.lowerBound])
-            if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(.text(before.trimmingCharacters(in: .newlines))) }
-            let body = rest[open.upperBound...]
-            guard let close = body.range(of: "```") else { out.append(.pending); return out }
-            let json = String(body[..<close.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if let d = Diagram.parse(JSON.parse(json)).diagram { out.append(.diagram(d)) } else { out.append(.text("```\n\(json)\n```")) }
-            rest = body[close.upperBound...]
-        }
-        let tail = String(rest).trimmingCharacters(in: .newlines)
-        if !tail.trimmingCharacters(in: .whitespaces).isEmpty { out.append(.text(tail)) }
-        return out
-    }
-}

@@ -165,7 +165,7 @@ public struct MoodleSiteProfile: Equatable {
         let providers = d["identityproviders"] as? [[String: Any]] ?? []
         let only = providers.count == 1 ? providers[0] : nil
         self.site = root
-        name = MoodleSync.stripHTML(d["sitename"] as? String) ?? root.host ?? "Moodle"
+        name = MoodleClient.stripHTML(d["sitename"] as? String) ?? root.host ?? "Moodle"
         logoURL = url("compactlogourl") ?? url("logourl")
         providerName = only?["name"] as? String
         providerURL = (only?["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.host?.lowercased() == root.host?.lowercased() ? $0 : nil }
@@ -173,111 +173,30 @@ public struct MoodleSiteProfile: Equatable {
     }
 }
 
-/// What the connection has brought in so far.
-public struct MoodleStats: Equatable {
-    public var courses = 0
-    public var deadlines = 0
-    public var grades = 0
-    public var files = 0
-}
-
 public struct MoodleCourseInfo: Hashable {
     public var id: Int; public var shortname: String; public var fullname: String
-    /// Course dates from Moodle, when the school sets them.
+    /// Course dates from Moodle, when the school sets them (and keeps them up to date, which not every school does).
     public var start: Date?; public var end: Date?
-    public init(id: Int, shortname: String, fullname: String, start: Date? = nil, end: Date? = nil) {
-        self.id = id; self.shortname = shortname; self.fullname = fullname; self.start = start; self.end = end
+    /// When the student last opened the course in Moodle.
+    public var lastAccess: Date?
+    public init(id: Int, shortname: String, fullname: String, start: Date? = nil, end: Date? = nil, lastAccess: Date? = nil) {
+        self.id = id; self.shortname = shortname; self.fullname = fullname; self.start = start; self.end = end; self.lastAccess = lastAccess
     }
 
     init?(json d: [String: Any]) {
         guard let id = (d["id"] as? NSNumber)?.intValue else { return nil }
         func date(_ k: String) -> Date? { ((d[k] as? NSNumber)?.doubleValue).flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0) : nil } }
-        self.init(id: id, shortname: d["shortname"] as? String ?? "", fullname: d["fullname"] as? String ?? "",
-                  start: date("startdate"), end: date("enddate"))
-    }
-
-    var json: [String: Any] {
-        ["id": id, "shortname": shortname, "fullname": fullname,
-         "startdate": start.map { Int($0.timeIntervalSince1970) } ?? 0, "enddate": end.map { Int($0.timeIntervalSince1970) } ?? 0]
+        self.init(id: id, shortname: MoodleClient.stripHTML(d["shortname"] as? String) ?? "", fullname: MoodleClient.stripHTML(d["fullname"] as? String) ?? "",
+                  start: date("startdate"), end: date("enddate"), lastAccess: date("lastaccess"))
     }
 }
 
-public struct MoodleSyncReport {
-    public var courses: [MoodleCourseInfo] = []
-    public var linked = 0
-    public var assignmentsCreated = 0
-    public var assignmentsUpdated = 0
-    public var gradesUpdated = 0
-    public var filesImported = 0
-    public var conflicts = 0
-    public var errors: [String] = []
-    public var summary: String {
-        var parts: [String] = []
-        if assignmentsCreated > 0 { parts.append("\(assignmentsCreated) new deadline\(assignmentsCreated == 1 ? "" : "s")") }
-        if assignmentsUpdated > 0 { parts.append("\(assignmentsUpdated) updated") }
-        if gradesUpdated > 0 { parts.append("\(gradesUpdated) grade\(gradesUpdated == 1 ? "" : "s")") }
-        if filesImported > 0 { parts.append("\(filesImported) new file\(filesImported == 1 ? "" : "s")") }
-        if conflicts > 0 { parts.append("\(conflicts) conflict\(conflicts == 1 ? "" : "s")") }
-        if parts.isEmpty { parts.append("Everything is up to date") }
-        if !errors.isEmpty { parts.append("\(errors.count) problem\(errors.count == 1 ? "" : "s")") }
-        return parts.joined(separator: ", ") + "."
-    }
-}
-
-public enum MoodleSync {
+extension MoodleClient {
+    /// The Keychain account holding the Moodle token.
     public static let tokenAccount = "moodle-token"
 
-    /// The courses Moodle listed at the last sync.
-    public static func storedCourses(store: StudyStore) -> [MoodleCourseInfo] {
-        (JSON.parse(store.setting("moodle_courses")) as? [[String: Any]] ?? []).compactMap(MoodleCourseInfo.init(json:))
-    }
-
-    /// Moodle courses running now (or starting within 60 days) that have no local course yet.
-    public static func unlinkedCurrentCourses(store: StudyStore, now: Date = Date()) -> [MoodleCourseInfo] {
-        let linked = Set(store.courses(includeArchived: true).compactMap(\.moodleId))
-        return storedCourses(store: store).filter { c in
-            !linked.contains(c.id) && (c.end.map { $0 > now } ?? true) && (c.start.map { $0 < now.adding(days: 60) } ?? true)
-        }
-    }
-
-    /// First-run setup: creates the current term (from the courses' dates, unless one exists) and a local course for
-    /// each current Moodle course, linked by Moodle id so the next sync brings in deadlines, grades and files.
-    @discardableResult
-    public static func createCoursesAndTerm(store: StudyStore, now: Date = Date()) throws -> (termCreated: Bool, courses: Int) {
-        let todo = unlinkedCurrentCourses(store: store, now: now)
-        guard !todo.isEmpty else { return (false, 0) }
-        let tz = store.timezone
-        var created = false
-        let termId: Int
-        if let t = store.currentTerm() {
-            termId = t.id
-        } else {
-            let start = todo.compactMap(\.start).min() ?? now
-            let end = todo.compactMap(\.end).max() ?? start.adding(days: 120)
-            let first = LocalDate(start, tz: tz)
-            let season = first.month >= 8 ? "Fall" : first.month >= 6 ? "Summer" : "Spring"
-            termId = try store.saveTerm(Term(name: "\(season) \(first.year)", startDate: first, endDate: LocalDate(end, tz: tz), isCurrent: true))
-            created = true
-        }
-        for c in todo {
-            let code = c.shortname.trimmingCharacters(in: .whitespaces)
-            let name = c.fullname.trimmingCharacters(in: .whitespaces)
-            _ = try store.saveCourse(Course(termId: termId, code: code.isEmpty ? nil : code, name: name.isEmpty ? code : name,
-                                            color: store.nextCourseColor(), moodleId: c.id))
-        }
-        store.audit("moodle_create_courses", detail: "\(todo.count) courses")
-        return (created, todo.count)
-    }
-
-    public static func stats(store: StudyStore) -> MoodleStats {
-        func count(_ sql: String) -> Int { (try? store.db.scalarInt(sql)) ?? 0 }
-        return MoodleStats(courses: count("SELECT count(*) FROM courses WHERE moodle_id IS NOT NULL AND archived = 0"),
-                           deadlines: count("SELECT count(*) FROM assignments WHERE source = 'moodle' AND dismissed = 0"),
-                           grades: count("SELECT count(*) FROM assignments WHERE source = 'moodle' AND dismissed = 0 AND status = 'graded'"),
-                           files: count("SELECT count(*) FROM materials WHERE external_uid LIKE 'moodle:%'"))
-    }
-
-    static func stripHTML(_ s: String?) -> String? {
+    /// Moodle's HTML (names, descriptions) as plain text.
+    public static func stripHTML(_ s: String?) -> String? {
         guard let s, !s.isEmpty else { return nil }
         let noTags = s.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
             .replacingOccurrences(of: "</p>", with: "\n\n").replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
@@ -286,195 +205,5 @@ public enum MoodleSync {
             .replacingOccurrences(of: "&quot;", with: "\"")
         let t = noTags.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? nil : String(t.prefix(4000))
-    }
-
-    /// Pulls deadlines, submission status, grades and new course files for linked courses.
-    public static func run(store: StudyStore, client: MoodleClient, downloadFiles: Bool, autoConfirm: Bool, now: Date = Date()) async -> MoodleSyncReport {
-        var report = MoodleSyncReport()
-        func finish() {
-            store.setSetting("moodle_last_sync", ISO.instant(now))
-            store.setSetting("moodle_last_status", report.summary)
-            store.audit("moodle_sync", detail: report.summary)
-        }
-        do {
-            guard let info = try await client.call("core_webservice_get_site_info") as? [String: Any], let userId = (info["userid"] as? NSNumber)?.intValue else {
-                report.errors.append("Could not read your Moodle profile."); return report
-            }
-            // Who the connection belongs to, shown in Settings.
-            store.setBool("moodle_needs_signin", false)
-            store.setSetting("moodle_user_name", info["fullname"] as? String)
-            if let name = stripHTML(info["sitename"] as? String) { store.setSetting("moodle_site_name", name) }
-            let list = try await client.call("core_enrol_get_users_courses", ["userid": userId]) as? [[String: Any]] ?? []
-            report.courses = list.compactMap(MoodleCourseInfo.init(json:))
-            store.setSetting("moodle_courses", JSON.string(report.courses.map(\.json)))
-
-            // Link Moodle courses to local ones by code or name.
-            var local = store.courses()
-            for mc in report.courses where !local.contains(where: { $0.moodleId == mc.id }) {
-                let candidates = local.filter { $0.moodleId == nil }
-                if let c = CourseMatcher.best(mc.shortname + " " + mc.fullname, courses: candidates, minimum: 60) {
-                    var u = c; u.moodleId = mc.id
-                    _ = try? store.saveCourse(u)
-                    report.linked += 1
-                }
-            }
-            local = store.courses()
-            let linked = Dictionary(uniqueKeysWithValues: local.compactMap { c in c.moodleId.map { ($0, c) } })
-            guard !linked.isEmpty else { finish(); return report }
-
-            // Assignments.
-            let ids = Array(linked.keys)
-            let assignResp = try await client.call("mod_assign_get_assignments", ["courseids": ids]) as? [String: Any]
-            var assignIdByInstance: [Int: Int] = [:]
-            for c in assignResp?["courses"] as? [[String: Any]] ?? [] {
-                guard let mcid = (c["id"] as? NSNumber)?.intValue, let course = linked[mcid] else { continue }
-                for a in c["assignments"] as? [[String: Any]] ?? [] {
-                    guard let aid = (a["id"] as? NSNumber)?.intValue else { continue }
-                    let due = (a["duedate"] as? NSNumber)?.doubleValue ?? 0
-                    let cmid = (a["cmid"] as? NSNumber)?.intValue
-                    let url = cmid.map { client.site.appendingPathComponent("mod/assign/view.php").absoluteString + "?id=\($0)" }
-                    let r = upsert(store: store, uid: "assign:\(aid)", courseId: course.id, title: a["name"] as? String ?? "Assignment",
-                                   kind: CourseMatcher.guessKind(a["name"] as? String ?? ""), due: due > 0 ? Date(timeIntervalSince1970: due) : nil,
-                                   description: stripHTML(a["intro"] as? String), url: url, autoConfirm: autoConfirm)
-                    report.assignmentsCreated += r.created; report.assignmentsUpdated += r.updated; report.conflicts += r.conflict
-                    if let id = r.id { assignIdByInstance[aid] = id }
-                    // Submission status for upcoming open work.
-                    if let id = r.id, let local = store.assignment(id), local.isOpen, due == 0 || Date(timeIntervalSince1970: due) > now.adding(days: -14) {
-                        if let st = try? await client.call("mod_assign_get_submission_status", ["assignid": aid]) as? [String: Any],
-                           let last = st["lastattempt"] as? [String: Any], let sub = last["submission"] as? [String: Any],
-                           (sub["status"] as? String) == "submitted" {
-                            var u = local
-                            u.status = .submitted
-                            u.submittedAt = ((sub["timemodified"] as? NSNumber)?.doubleValue).map { Date(timeIntervalSince1970: $0) } ?? now
-                            _ = try? store.saveAssignment(u, markModified: false)
-                            report.assignmentsUpdated += 1
-                        }
-                    }
-                }
-            }
-
-            // Other actionable items (quizzes, workshops…).
-            if let ev = try? await client.call("core_calendar_get_action_events_by_timesort",
-                                               ["timesortfrom": Int(now.adding(days: -7).timeIntervalSince1970), "limitnum": 50]) as? [String: Any] {
-                for e in ev["events"] as? [[String: Any]] ?? [] {
-                    guard let module = e["modulename"] as? String, module != "assign",
-                          let mcid = ((e["course"] as? [String: Any])?["id"] as? NSNumber)?.intValue, let course = linked[mcid],
-                          let inst = (e["instance"] as? NSNumber)?.intValue else { continue }
-                    let ts = (e["timesort"] as? NSNumber)?.doubleValue ?? 0
-                    let name = (e["activityname"] as? String) ?? (e["name"] as? String ?? module)
-                    let kind: AssignmentKind = module == "quiz" ? .quiz : CourseMatcher.guessKind(name)
-                    let r = upsert(store: store, uid: "\(module):\(inst)", courseId: course.id, title: name, kind: kind,
-                                   due: ts > 0 ? Date(timeIntervalSince1970: ts) : nil, description: nil, url: e["url"] as? String, autoConfirm: autoConfirm)
-                    report.assignmentsCreated += r.created; report.assignmentsUpdated += r.updated; report.conflicts += r.conflict
-                }
-            }
-
-            // Grades.
-            for (mcid, course) in linked {
-                guard let g = try? await client.call("gradereport_user_get_grade_items", ["courseid": mcid, "userid": userId]) as? [String: Any],
-                      let ug = (g["usergrades"] as? [[String: Any]])?.first else { continue }
-                for item in ug["gradeitems"] as? [[String: Any]] ?? [] {
-                    guard let module = item["itemmodule"] as? String, let inst = (item["iteminstance"] as? NSNumber)?.intValue else { continue }
-                    let uid = "\(module):\(inst)"
-                    guard let row = try? store.db.first("SELECT * FROM assignments WHERE source = 'moodle' AND external_uid = ?", [uid]) else { continue }
-                    var a = Assignment(row: row)
-                    guard a.courseId == course.id else { continue }
-                    var changed = false
-                    if let raw = (item["graderaw"] as? NSNumber)?.doubleValue, let max = (item["grademax"] as? NSNumber)?.doubleValue, max > 0 {
-                        if a.score != raw || a.maxScore != max || a.status != .graded {
-                            a.score = raw; a.maxScore = max; a.status = .graded; changed = true
-                        }
-                    }
-                    if a.weightPct == nil, let w = (item["weightraw"] as? NSNumber)?.doubleValue, w > 0 { a.weightPct = (w * 1000).rounded() / 10; changed = true }
-                    if changed { _ = try? store.saveAssignment(a, markModified: false); report.gradesUpdated += 1 }
-                }
-            }
-
-            // Course files → Inbox (already filed under the linked course).
-            if downloadFiles {
-                for (mcid, course) in linked {
-                    guard let sections = try? await client.call("core_course_get_contents", ["courseid": mcid]) as? [[String: Any]] else { continue }
-                    for s in sections {
-                        let sectionName = s["name"] as? String
-                        for mod in s["modules"] as? [[String: Any]] ?? [] {
-                            guard ["resource", "folder"].contains(mod["modname"] as? String ?? "") else { continue }
-                            let moduleName = mod["name"] as? String
-                            for f in mod["contents"] as? [[String: Any]] ?? [] {
-                                guard (f["type"] as? String) == "file", let name = f["filename"] as? String, let furl = f["fileurl"] as? String else { continue }
-                                let ext = (name as NSString).pathExtension.lowercased()
-                                guard MaterialParser.supportedExtensions.contains(ext), ["pptx", "pdf", "docx", "md", "txt"].contains(ext) else { continue }
-                                let size = (f["filesize"] as? NSNumber)?.intValue ?? 0
-                                guard size < MaterialParser.maxBytes else { continue }
-                                // Sorting and dating use where the file sits: its section ("Week 3", "Tutorials"), its
-                                // activity ("Tutorial 3") and any folder inside the activity ("Solutions").
-                                let folder = (f["filepath"] as? String)?.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
-                                let hints = ImportHints(sectionName: sectionName?.nilIfEmpty,
-                                                        moduleName: [moduleName, folder].compactMap { $0?.nilIfEmpty }.joined(separator: " · ").nilIfEmpty)
-                                let modified = (f["timemodified"] as? NSNumber)?.intValue ?? 0
-                                let stableUid = "moodle:\(mcid):" + StudyStore.sha256(Data((furl + "\(modified)").utf8)).prefix(16)
-                                if let existing = try? store.db.scalarInt("SELECT id FROM materials WHERE external_uid = ?", [stableUid]), existing > 0 {
-                                    store.addHints(existing, hints)
-                                    continue
-                                }
-                                do {
-                                    let data = try await client.download(furl)
-                                    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent(name)
-                                    try FileManager.default.createDirectory(at: tmp.deletingLastPathComponent(), withIntermediateDirectories: true)
-                                    try data.write(to: tmp)
-                                    let outcome = store.importMaterial(from: tmp, courseId: course.id, externalUid: stableUid, hints: hints, removeOriginal: true)
-                                    if case .imported = outcome { report.filesImported += 1 }
-                                    if case .duplicate(let id, _) = outcome {
-                                        _ = try? store.db.execute("UPDATE materials SET external_uid = COALESCE(external_uid, ?) WHERE id = ?", [stableUid, id])
-                                        store.addHints(id, hints)
-                                    }
-                                } catch {
-                                    report.errors.append("\(name): \(error)")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            finish()
-        } catch {
-            report.errors.append("\(error)")
-            if (error as? MoodleClient.MoodleError)?.code == "invalidtoken" { store.setBool("moodle_needs_signin", true) }
-            store.setSetting("moodle_last_status", "Sync failed: \(error)")
-        }
-        return report
-    }
-
-    struct UpsertResult { var id: Int?; var created = 0; var updated = 0; var conflict = 0 }
-
-    static func upsert(store: StudyStore, uid: String, courseId: Int, title: String, kind: AssignmentKind, due: Date?, description: String?,
-                       url: String?, autoConfirm: Bool) -> UpsertResult {
-        var r = UpsertResult()
-        if let row = try? store.db.first("SELECT * FROM assignments WHERE source = 'moodle' AND external_uid = ?", [uid]) {
-            var a = Assignment(row: row)
-            r.id = a.id
-            if a.dismissed { return r }
-            let changed = a.title != title || a.dueAt != due
-            guard changed else { return r }
-            if a.userModified && a.dueAt != due {
-                let open = (try? store.db.scalarInt("SELECT count(*) FROM conflicts WHERE entity = 'assignment' AND entity_id = ? AND resolved_at IS NULL", [a.id])) ?? 0
-                if open == 0 {
-                    _ = try? store.db.execute("INSERT INTO conflicts(entity, entity_id, source, summary, incoming_json) VALUES('assignment',?,?,?,?)",
-                                              [a.id, "moodle", "\(a.title): Moodle now says \(due.map { ISO.instant($0, in: store.timezone) } ?? "no due date").",
-                                               JSON.string(["title": title, "due_at": due.map { ISO.instant($0) } as Any])])
-                    r.conflict = 1
-                }
-                return r
-            }
-            a.title = title; a.dueAt = due; a.url = url ?? a.url
-            if a.description == nil { a.description = description }
-            _ = try? store.saveAssignment(a, markModified: false)
-            r.updated = 1
-            return r
-        }
-        let a = Assignment(courseId: courseId, title: title, description: description, kind: kind, dueAt: due, confirmed: autoConfirm,
-                           source: "moodle", externalUid: uid, url: url)
-        r.id = try? store.saveAssignment(a, markModified: false)
-        r.created = 1
-        return r
     }
 }

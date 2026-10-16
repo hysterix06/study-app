@@ -1,5 +1,14 @@
 import Foundation
 
+/// A course as the matcher sees it.
+public struct CourseName: Hashable, Sendable {
+    public var id: Int
+    public var name: String
+    public var code: String?
+    public var aliases: [String]
+    public init(id: Int, name: String, code: String? = nil, aliases: [String] = []) { self.id = id; self.name = name; self.code = code; self.aliases = aliases }
+}
+
 /// Suggests which course a piece of text (calendar title, filename, first slide) belongs to.
 public enum CourseMatcher {
     static func normalize(_ s: String) -> String {
@@ -10,17 +19,17 @@ public enum CourseMatcher {
     static func compact(_ s: String) -> String { normalize(s).replacingOccurrences(of: " ", with: "") }
 
     /// Scores each course; higher is better. Code matches beat names, names beat single words.
-    public static func scores(_ text: String, courses: [Course]) -> [(course: Course, score: Int)] {
+    public static func scores(_ text: String, courses: [CourseName]) -> [(course: CourseName, score: Int)] {
         let norm = " " + normalize(text) + " "
         let comp = compact(text)
-        var out: [(Course, Int)] = []
-        for c in courses where !c.archived {
+        var out: [(CourseName, Int)] = []
+        for c in courses {
             var score = 0
             if let code = c.code, !code.isEmpty {
                 let cc = compact(code)
                 if cc.count >= 3, comp.contains(cc) { score += 100 }
             }
-            for alias in c.aliasList where alias.count >= 2 {
+            for alias in c.aliases where alias.count >= 2 {
                 let a = normalize(alias)
                 if norm.range(of: #"\b"# + NSRegularExpression.escapedPattern(for: a) + #"\b"#, options: .regularExpression) != nil { score += 80 }
             }
@@ -36,7 +45,7 @@ public enum CourseMatcher {
         return out.sorted { $0.1 > $1.1 }
     }
 
-    public static func best(_ text: String, courses: [Course], minimum: Int = 30) -> Course? {
+    public static func best(_ text: String, courses: [CourseName], minimum: Int = 30) -> CourseName? {
         let s = scores(text, courses: courses)
         guard let top = s.first, top.score >= minimum else { return nil }
         if s.count > 1 && s[1].score == top.score { return nil }
@@ -57,18 +66,5 @@ public enum CourseMatcher {
         let words = ["assignment", "due", "deadline", "submit", "submission", "exam", "quiz", "test", "hand in", "hand-in",
                      "opens", "closes", "turnitin", "report", "presentation"]
         return words.contains { t.contains($0) }
-    }
-
-    public static func guessKind(_ title: String) -> AssignmentKind {
-        let t = title.lowercased()
-        if t.contains("exam") || t.contains("midterm") { return .exam }
-        if t.contains("quiz") || t.contains("test") { return .quiz }
-        if t.contains("presentation") || t.contains("pitch") { return .presentation }
-        if t.contains("report") || t.contains("essay") { return .report }
-        if t.contains("project") { return .project }
-        if t.contains("case") { return .case_ }
-        if t.contains("lab") || t.contains("practical") { return .lab }
-        if t.contains("reading") { return .reading }
-        return .assignment
     }
 }

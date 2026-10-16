@@ -17,28 +17,6 @@ func fixtureURL(_ name: String) -> URL {
 
 func fixtureText(_ name: String) -> String { try! String(contentsOf: fixtureURL(name), encoding: .utf8) }
 
-/// A store in a temporary folder with one term and a few courses.
-func makeStore(file: Bool = false) throws -> StudyStore {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent("st-tests-\(UUID().uuidString)")
-    let store: StudyStore
-    if file {
-        let paths = AppPaths(database: root.appendingPathComponent("study.db"), root: root.appendingPathComponent("files"))
-        store = try StudyStore.open(paths: paths)
-    } else {
-        store = try StudyStore.inMemory(root: root)
-    }
-    store.setSetting("default_timezone", "Europe/Madrid")
-    return store
-}
-
-@discardableResult
-func seedCourses(_ store: StudyStore) throws -> (term: Int, hm: Int, mkt: Int) {
-    let term = try store.saveTerm(Term(name: "Fall 2026", startDate: d("2026-09-07"), endDate: d("2026-12-18"), isCurrent: true))
-    let hm = try store.saveCourse(Course(termId: term, code: "HM210", name: "Revenue Management", color: "ocean", aliases: "revman"))
-    let mkt = try store.saveCourse(Course(termId: term, code: "MKT201", name: "Hospitality Marketing", color: "clay"))
-    return (term, hm, mkt)
-}
-
 enum FixtureFactory {
     static func tempDir() -> URL {
         let u = FileManager.default.temporaryDirectory.appendingPathComponent("st-fixtures-\(UUID().uuidString)")

@@ -1,2 +1,0 @@
-import StudyMCPCore
-StudyMCPMain.run()

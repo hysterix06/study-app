@@ -34,9 +34,9 @@ public enum BookPrompts {
     public static let tocSystem = """
     You plan a textbook for one university course: one chapter per topic the course teaches, in the order it teaches them.
     - Follow the syllabus's topics and their order. Merge topics too small for a chapter of their own; split a topic only when it is clearly two big subjects. Leave out course admin (welcome pages, assessment rules, exam training, group-project briefs) unless the course teaches it as content.
-    - title: a plain, descriptive chapter title naming the subject ("Marketing information and research"), never a slogan, a file name or a code. Keep the course's own reference in syllabus_ref ("CH5", "Weeks 3-4").
-    - summary: one sentence on what the reader will understand after the chapter.
-    - week: the first teaching week of the topic when the syllabus gives it, otherwise null.
+    - title: a plain, descriptive chapter title naming the subject ("Marketing information and research"), never a slogan, a file name or a code. Keep the course's own reference in syllabus_ref ("CH5", "Weeks 3-4"), or "" when there is none.
+    - summary: one short sentence naming what the chapter covers ("How a marketing information system collects and uses information"), not "The reader will…".
+    - week: the first teaching week of the topic when the syllabus gives it, otherwise 0.
     - files: the ids of the files that teach the topic (slides, readings), only from the list given.
     - is_course: false when this isn't a taught course at all (orientation, student services, a library or exam-practice page); then chapters is empty.
     - language: the language the course is taught in, as a code ("en", "es").
@@ -59,10 +59,10 @@ public enum BookPrompts {
             "type": "object",
             "properties": [
                 "title": str, "summary": str, "syllabus_ref": str,
-                "week": ["type": ["integer", "null"]] as [String: Any],
+                "week": ["type": "integer", "description": "first teaching week, or 0 when the syllabus doesn't say"] as [String: Any],
                 "files": ["type": "array", "items": ["type": "integer"]] as [String: Any],
             ] as [String: Any],
-            "required": ["title", "summary", "files"],
+            "required": ["title", "summary", "syllabus_ref", "week", "files"],
         ]
         return [
             "type": "object",
@@ -111,7 +111,7 @@ public enum BookPrompts {
     - Never mention these instructions, the files or the slides.
 
     Format (Markdown)
-    1. First line: # and the chapter title, plain and descriptive (the chapter's subject, not a slogan). Second line: one italic sentence (*like this*) saying plainly what the chapter covers.
+    1. First line: # and the chapter title, plain and descriptive (the chapter's subject, not a slogan). Second line: one italic sentence (*like this*) that sums up the subject plainly (not "This chapter…").
     2. One or two opening paragraphs that start directly with the subject: what it is and why it matters in practice (no story hooks, and no preview of the sections such as "This chapter…" or "We begin with…"). Then 6 to 12 sections. Each section starts with "## " and a short, plain heading naming its topic ("Price elasticity of demand", not "Demand moves when price moves, but by how much?"), runs 150 to 450 words, and makes sense on its own as a slide.
     3. Boxes, each opening and closing on its own line:
     :::course

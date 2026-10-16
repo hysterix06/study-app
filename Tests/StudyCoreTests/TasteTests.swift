@@ -1,6 +1,5 @@
 import XCTest
 @testable import StudyCore
-@testable import StudyAI
 
 /// Phase 0 of the book rebuild: real chapters in the real page, to judge the voice and the look before the rest is
 /// built. Both tests are opt-in and write to dist/taste/.
@@ -51,6 +50,26 @@ final class TasteTests: XCTestCase {
               doc.problems.isEmpty ? "" : "· problems: \(doc.problems.joined(separator: "; "))",
               doc.warnings.isEmpty ? "" : "· warnings: \(doc.warnings.joined(separator: "; "))")
         return url
+    }
+
+    // MARK: Seed (free)
+
+    /// `STUDY_TASTE=1 STUDY_TASTE_SEED=<book.db> swift test --filter TasteTests/testSeed` saves the Marketing book from
+    /// dist/taste (its contents and the chapters written there) into a new-app database, for looking at the screens.
+    func testSeed() throws {
+        let path = try XCTUnwrap(env["STUDY_TASTE_SEED"], "Set STUDY_TASTE_SEED to a book.db")
+        let url = URL(fileURLWithPath: path)
+        let store = try BookStore.open(paths: AppPaths(database: url, root: url.deletingLastPathComponent()))
+        let course = try XCTUnwrap(store.courses(includeHidden: true).first { $0.name.contains("Mkt") }, "no Marketing course")
+        let toc = try JSONSerialization.jsonObject(with: Data(contentsOf: Self.out.appendingPathComponent("marketing-for-the-hospitality-industry-toc.json"))) as? [String: Any]
+        let (plan, _) = BookPlan.parse(toc?["plan"], knownFiles: [])
+        try store.saveBook(courseId: course.id, plan: try XCTUnwrap(plan), model: "sonnet", usage: (4400, 813))
+        for n in [3, 7] {
+            let md = try String(contentsOf: Self.out.appendingPathComponent("marketing-for-the-hospitality-industry-\(n).md"), encoding: .utf8)
+            let ch = try XCTUnwrap(store.chapters(courseId: course.id).first { $0.position == n })
+            try store.saveChapter(ch.id, markdown: md, doc: ChapterDoc.parse(md), engine: "Claude Code", model: "sonnet", usage: (7000, 7000), milliseconds: 60_000)
+        }
+        print("seeded course \(course.id): chapters", store.chapters(courseId: course.id).map { "\($0.id):\($0.status)" })
     }
 
     // MARK: Write (two Claude Code requests)
@@ -121,8 +140,10 @@ final class TasteTests: XCTestCase {
     func readCourse(_ db: Database, courseId: Int) throws -> (BookPrompts.Course, String, [BookPrompts.File]) {
         let c = try XCTUnwrap(try db.first("SELECT code, name FROM courses WHERE id = ?", [courseId]), "no course \(courseId)")
         let course = BookPrompts.Course(name: c.str("name").trimmingCharacters(in: .whitespacesAndNewlines), code: c.string("code"))
-        func chunks(_ materialId: Int) throws -> [Chunk] {
-            try db.query("SELECT * FROM chunks WHERE material_id = ? ORDER BY ordinal", [materialId]).map(Chunk.init(row:))
+        func chunks(_ materialId: Int) throws -> [ParsedChunk] {
+            try db.query("SELECT locator, heading, text_md, notes_md FROM chunks WHERE material_id = ? ORDER BY ordinal", [materialId]).map {
+                ParsedChunk(locator: $0.str("locator"), heading: $0.string("heading"), textMd: $0.str("text_md"), notesMd: $0.string("notes_md"))
+            }
         }
         func label(_ r: Row) -> String {
             let module = r.string("module_name")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

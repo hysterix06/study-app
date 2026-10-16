@@ -1,19 +1,7 @@
 import XCTest
 @testable import StudyCore
-@testable import StudyMCPCore
-@testable import StudyAI
 
-// Diagrams, slide condensing and the lean Claude Code engine. Fixtures are Markdown and direct database
-// rows only, so these run on every platform.
-
-private func notesStore() throws -> (StudyStore, course: Int) {
-    let root = FileManager.default.temporaryDirectory.appendingPathComponent("st-notes-\(UUID().uuidString)")
-    let store = try StudyStore.open(paths: AppPaths(database: root.appendingPathComponent("study.db"), root: root.appendingPathComponent("files")))
-    store.setSetting("default_timezone", "Europe/Madrid")
-    let term = try store.saveTerm(Term(name: "Fall 2026", startDate: LocalDate("2026-09-07")!, endDate: LocalDate("2026-12-18")!, isCurrent: true))
-    let course = try store.saveCourse(Course(termId: term, code: "EC101", name: "Microeconomics", color: "ocean"))
-    return (store, course)
-}
+// Diagrams, slide condensing and the lean Claude Code engine.
 
 final class DiagramTests: XCTestCase {
     let supplyDemand: [String: Any] = [
@@ -101,8 +89,8 @@ final class DiagramTests: XCTestCase {
 }
 
 final class CondenserTests: XCTestCase {
-    func chunk(_ id: Int, _ text: String, heading: String? = nil, notes: String? = nil) -> Chunk {
-        Chunk(id: id, materialId: 1, ordinal: id, locator: "slide \(id)", heading: heading, textMd: text, notesMd: notes)
+    func chunk(_ n: Int, _ text: String, heading: String? = nil, notes: String? = nil) -> ParsedChunk {
+        ParsedChunk(locator: "slide \(n)", heading: heading, textMd: text, notesMd: notes)
     }
 
     func testDropsFootersFillerAndRepeats() {
@@ -116,25 +104,19 @@ final class CondenserTests: XCTestCase {
             chunk(6, "Questions?\n\(footer)", notes: "Remind them about the quiz on Friday"),
         ]
         let r = MaterialCondenser.condense(chunks)
-        XCTAssertEqual(r.chunks.map(\.id), [1, 2, 3, 6], "repeated agenda and the thank-you slide go")
+        XCTAssertEqual(r.chunks.map(\.locator), ["slide 1", "slide 2", "slide 3", "slide 6"], "repeated agenda and the thank-you slide go")
         XCTAssertFalse(r.chunks.contains { $0.textMd.contains(footer) }, "footer stripped everywhere")
         XCTAssertFalse(r.chunks[1].textMd.hasSuffix("2"), "slide numbers stripped")
         XCTAssertEqual(r.dropped, 2)
         XCTAssertLessThan(r.tokensAfter, r.tokensBefore)
     }
 
-    func testNeverReturnsNothingAndKeepsUntouchedEstimates() {
+    func testNeverReturnsNothingAndKeepsIndentation() {
         let noise = [chunk(1, "Thank you"), chunk(2, "Questions?")]
-        XCTAssertEqual(MaterialCondenser.condense(noise).chunks.map(\.id), [1, 2])
-        let c = Chunk(id: 9, materialId: 1, ordinal: 1, locator: "p. 1", textMd: "Elasticity measures responsiveness.", tokenEstimate: 1500)
-        XCTAssertEqual(MaterialCondenser.condense([c]).chunks.first?.tokenEstimate, 1500)
-        // A slide that repeats its title loses that line; its estimate shrinks in proportion, and indentation stays.
-        let slide = Chunk(id: 10, materialId: 1, ordinal: 2, locator: "slide 2", heading: "Elasticity",
-                          textMd: "## Elasticity\n- Responsiveness\n  - of quantity to price", tokenEstimate: 1500)
-        let kept = MaterialCondenser.condense([slide]).chunks[0]
+        XCTAssertEqual(MaterialCondenser.condense(noise).chunks.count, 2)
+        // A slide that repeats its title loses that line, and its bullet hierarchy stays.
+        let kept = MaterialCondenser.condense([chunk(2, "## Elasticity\n- Responsiveness\n  - of quantity to price", heading: "Elasticity")]).chunks[0]
         XCTAssertEqual(kept.textMd, "- Responsiveness\n  - of quantity to price")
-        XCTAssertLessThan(kept.tokenEstimate, 1500)
-        XCTAssertGreaterThan(kept.tokenEstimate, 1000)
     }
 }
 
@@ -174,24 +156,6 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertTrue(a[a.firstIndex(of: "--system-prompt")! + 1].hasPrefix("Rules."), "replaces Claude Code's own instructions")
         XCTAssertFalse(a.contains("The slides…"), "material goes through stdin, not the command line")
         XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("stdin.txt"), encoding: .utf8), "The slides…")
-    }
-
-    func testTheActivityLogSeesEachRequestAndClaudeCodesCommand() async throws {
-        let started = LockedBox<[(Int32, [String])]>([])
-        let events = LockedBox<[String]>([])
-        let cli = ClaudeCodeProvider(cli: try fakeCLI(), workingDirectory: dir) { pid, args in started.value.append((pid, args)) }
-        let p = ObservedProvider(cli) { e in
-            switch e {
-            case .request(let r): events.value.append("request \(r.model)")
-            case .reply(let r, _): events.value.append("reply \(r.usage.outputTokens)")
-            case .failed(let m, _): events.value.append("failed \(m)")
-            }
-        }
-        _ = try await p.send(ChatRequest(model: "sonnet", messages: [.user("hi")]))
-        XCTAssertEqual(events.value, ["request sonnet", "reply 400"])
-        XCTAssertEqual(started.value.count, 1)
-        XCTAssertGreaterThan(started.value[0].0, 0, "the process to watch")
-        XCTAssertTrue(started.value[0].1.contains("-p"), "the exact command line")
     }
 
     func testDropsAFlagAnOlderCLIRejects() async throws {
@@ -245,34 +209,6 @@ final class ClaudeCodeProviderTests: XCTestCase {
         XCTAssertEqual(try args()[try args().firstIndex(of: "--effort")! + 1], "low", "reading files")
         _ = try await ClaudeCodeProvider(cli: try fakeCLI(), workingDirectory: dir, effort: nil).send(ChatRequest(model: "sonnet", messages: [.user("hi")]))
         XCTAssertFalse(try args().contains("--effort"), "building a course")
-    }
-
-    func testMeterTreatsThePlanAsUnpaidButCapped() throws {
-        let (store, _) = try notesStore()
-        AISettings(store: store).monthlyCapUSD = 0
-        let meter = StoreUsageMeter(store: store)
-        XCTAssertNoThrow(try meter.check(provider: ClaudeCodeProvider.descriptor, model: ClaudeCodeProvider.descriptor.model("sonnet")),
-                         "a plan isn't money, so the spending cap doesn't block it")
-    }
-}
-
-final class DiagramBlockTests: XCTestCase {
-    func testChatRepliesSplitAroundDiagrams() {
-        let reply = """
-        Here is the market:
-        ```diagram
-        {"kind":"flow","steps":["Price rises","Quantity demanded falls"]}
-        ```
-        Notice the direction.
-        """
-        let parts = DiagramBlocks.split(reply)
-        XCTAssertEqual(parts.count, 3)
-        XCTAssertEqual(parts.first, .text("Here is the market:"))
-        if case .diagram(let d) = parts[1] { XCTAssertEqual(d.steps.count, 2) } else { XCTFail() }
-        XCTAssertEqual(parts.last, .text("Notice the direction."))
-        XCTAssertEqual(DiagramBlocks.split("Plain answer."), [.text("Plain answer.")])
-        XCTAssertEqual(DiagramBlocks.split("Drawing:\n```diagram\n{\"kind\":"), [.text("Drawing:"), .pending], "still streaming")
-        if case .text(let t) = DiagramBlocks.split("```diagram\nnot json\n```")[0] { XCTAssertTrue(t.contains("not json")) } else { XCTFail() }
     }
 }
 

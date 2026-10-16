@@ -1,19 +1,17 @@
 #!/bin/zsh
-# Builds dist/Study Tracker.app (with the MCP server and Claude Desktop extension inside) and dist/study-tracker.mcpb.
+# Builds dist/Study Tracker.app, and a zip of it to share with friends.
 # Usage: scripts/build-app.sh [--install]   (--install copies the app to /Applications)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-# One version number, kept in the MCP server source.
-VERSION="$(sed -n 's/^public let studyMCPVersion = "\(.*\)"/\1/p' Sources/StudyMCPCore/MCPServer.swift)"
+VERSION="$(tr -d '[:space:]' < VERSION)"
 BUILD="$(date +%Y%m%d%H%M)"
 DIST="$ROOT/dist"
 APP="$DIST/Study Tracker.app"
 
 echo "→ Building release binaries"
 swift build -c release --product StudyTracker
-swift build -c release --product study-mcp
 BIN="$(swift build -c release --show-bin-path)"
 
 echo "→ Compiling icon"
@@ -31,42 +29,16 @@ MASTER="$ICONWORK/AppIcon-1024.png"
   --width 1024 --height 1024 --scale 1 >/dev/null
 cp "$MASTER" Resources/Icon/AppIcon-1024.png
 
-echo "→ Packaging the Claude Desktop extension (.mcpb)"
-MCPB="$DIST/mcpb"
-mkdir -p "$MCPB/server"
-cp "$BIN/study-mcp" "$MCPB/server/study-mcp"
-sips -z 512 512 "$MASTER" --out "$MCPB/icon.png" >/dev/null
-cp Resources/MCPB/manifest.json "$MCPB/manifest.json"
-sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$MCPB/manifest.json"
-codesign --force --sign - "$MCPB/server/study-mcp"
-(cd "$MCPB" && zip -q -r -X "$DIST/study-tracker.mcpb" manifest.json icon.png server)
-if command -v npx >/dev/null 2>&1; then
-  npx --yes @anthropic-ai/mcpb validate "$MCPB/manifest.json" >/dev/null 2>&1 && echo "  manifest valid" || echo "  warning: mcpb validate reported problems (run: npx @anthropic-ai/mcpb validate $MCPB/manifest.json)"
-fi
-
 echo "→ Assembling the app bundle"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/StudyTracker" "$APP/Contents/MacOS/StudyTracker"
-cp "$BIN/study-mcp" "$APP/Contents/MacOS/study-mcp"
 cp "$ICONWORK/Assets.car" "$APP/Contents/Resources/Assets.car"
 cp "$ICONWORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-cp "$DIST/study-tracker.mcpb" "$APP/Contents/Resources/study-tracker.mcpb"
-# Lessons and notebook pages: marked and KaTeX, bundled so nothing loads from the network. (Not SwiftPM resources:
-# Bundle.module in an executable target breaks signing.)
-rm -rf "$APP/Contents/Resources/LessonKit"
-ditto Resources/LessonKit "$APP/Contents/Resources/LessonKit"
-# SwiftMath's fonts (formulas on notebook pages). Its Bundle.module looks in Contents/Resources only when SwiftPM's
-# swiftbuild backend generated it; the native backend looks at the bundle root, which can't be signed, and SwiftMath
-# would crash on the first formula. So check, and stop rather than ship that.
-ACCESSOR="$(find .build/out/Intermediates.noindex/SwiftMath.build/Release -name resource_bundle_accessor.swift 2>/dev/null | head -1)"
-if [[ -z "$ACCESSOR" ]] || ! grep -q "Bundle.main.resourceURL" "$ACCESSOR"; then
-  echo "error: SwiftMath wasn't built with the swiftbuild backend (Swift 6.4+ uses it by default)." >&2
-  exit 1
-fi
-rm -rf "$APP/Contents/Resources/SwiftMath_SwiftMath.bundle"
-ditto "$BIN/SwiftMath_SwiftMath.bundle" "$APP/Contents/Resources/SwiftMath_SwiftMath.bundle"
-rm -rf "$APP/Contents/Resources/Licenses"
-ditto Resources/Licenses "$APP/Contents/Resources/Licenses"
+# The book page: marked and KaTeX, bundled so nothing loads from the network. (Not SwiftPM resources: Bundle.module
+# in an executable target breaks signing.)
+rm -rf "$APP/Contents/Resources/LessonKit" "$APP/Contents/Resources/Book"
+ditto Resources/Book "$APP/Contents/Resources/Book"
+rm -f "$APP/Contents/Resources/Book/preview.html"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,21 +55,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
-  <key>CFBundleURLTypes</key>
-  <array>
-    <dict>
-      <key>CFBundleURLName</key><string>com.studytracker.app.route</string>
-      <key>CFBundleURLSchemes</key><array><string>studytracker</string></array>
-    </dict>
-  </array>
   <key>LSApplicationCategoryType</key><string>public.app-category.education</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSHumanReadableCopyright</key><string>Your data stays on this Mac.</string>
-  <key>NSCalendarsFullAccessUsageDescription</key><string>Study Tracker adds your classes, deadlines and planned study to a "Study Tracker" calendar so they appear on your iPhone and Watch.</string>
-  <key>NSRemindersFullAccessUsageDescription</key><string>Study Tracker adds your deadlines to a "Study Tracker" reminders list.</string>
-  <key>NSCameraUseContinuityCameraDeviceType</key><true/>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Study Tracker can put your deadlines in a calendar so they appear on your iPhone.</string>
 </dict>
 </plist>
 PLIST
@@ -108,7 +71,6 @@ SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/de
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 if [[ "$SIGN_IDENTITY" == "-" ]]; then echo "→ Signing (ad hoc; expect Keychain prompts after each rebuild)"
 else echo "→ Signing as $SIGN_IDENTITY (if macOS asks for your password here, run scripts/trust-signing-key.sh once)"; fi
-codesign --force --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/study-mcp"
 codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP"
 
@@ -128,5 +90,10 @@ if [[ "${1:-}" == "--install" ]]; then
   APP="$INSTALLED"
 fi
 
+# A zip to share: friends unzip it and approve it once in System Settings › Privacy & Security.
+if [[ "${1:-}" != "--install" ]]; then
+  rm -f "$DIST/Study Tracker $VERSION.zip"
+  ditto -c -k --keepParent "$APP" "$DIST/Study Tracker $VERSION.zip"
+fi
+
 echo "Done: $APP"
-echo "      $DIST/study-tracker.mcpb"
