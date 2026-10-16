@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- A chapter outside the app, for judging voice and look in a browser. TasteTests fills in BASE (this folder) and
+     PAYLOAD (ChapterDoc.payload). P presents, Esc or P goes back, D switches light and dark. -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<base href="{{BASE}}">
+<link rel="stylesheet" href="../LessonKit/vendor/katex.min.css">
+<link rel="stylesheet" href="book.css">
+<script src="../LessonKit/vendor/katex.min.js"></script>
+<script src="../LessonKit/vendor/marked.umd.js"></script>
+<script src="book.js"></script>
+</head>
+<body>
+<div class="toolbar">
+  <button data-action="present" title="Present (P)">Present</button>
+  <button data-action="read" title="Read (Esc)">Read</button>
+  <button data-action="scheme" title="Light or dark (D)">Light / dark</button>
+</div>
+<main id="book"></main><div id="deck"></div>
+<script>Book.render({{PAYLOAD}});</script>
+</body>
+</html>

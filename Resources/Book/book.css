@@ -1,0 +1,288 @@
+/* Study Tracker's book page. One reading column set like a good textbook, the course colour as the only accent, and
+   a paper palette for light and dark. book.js sets data-scheme on <html> from the system (or the preview's toggle)
+   and the course colour as --accent-light / --accent-dark. */
+
+:root {
+  --accent-light: #b4532a;
+  --accent-dark: #e48b5c;
+  --serif: ui-serif, "New York", "Iowan Old Style", Palatino, Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --measure: 35em;
+}
+
+:root[data-scheme="light"] {
+  color-scheme: light;
+  --paper: #fbf9f4;
+  --ink: #1d1b18;
+  --ink-2: #4f4a43;
+  --ink-3: #8c857a;
+  --rule: rgba(29, 27, 24, 0.12);
+  --tint: rgba(29, 27, 24, 0.04);
+  --accent: var(--accent-light);
+  --fig-ink: #3a3f47; --fig-paper: #fbf9f4;
+  --fig-s0: #2f6fd6; --fig-s1: #d6602f; --fig-s2: #1f9a6b; --fig-s3: #8b5cd6; --fig-s4: #c2416b; --fig-s5: #6b7280;
+  --fig-a0: #e0a526; --fig-a1: #8b5cd6; --fig-a2: #c2416b; --fig-a3: #6b7280;
+}
+
+:root[data-scheme="dark"] {
+  color-scheme: dark;
+  --paper: #161513;
+  --ink: #ece7dd;
+  --ink-2: #bdb6a8;
+  --ink-3: #8a8377;
+  --rule: rgba(236, 231, 221, 0.13);
+  --tint: rgba(236, 231, 221, 0.05);
+  --accent: var(--accent-dark);
+  --fig-ink: #d6d1c6; --fig-paper: #161513;
+  --fig-s0: #7aa7f5; --fig-s1: #f08c5e; --fig-s2: #52c99c; --fig-s3: #b38ef5; --fig-s4: #ee7ba1; --fig-s5: #a3a9b4;
+  --fig-a0: #f0c24f; --fig-a1: #b38ef5; --fig-a2: #ee7ba1; --fig-a3: #a3a9b4;
+}
+
+* { box-sizing: border-box; }
+
+html { background: var(--paper); }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 19px/1.62 var(--serif);
+  -webkit-font-smoothing: antialiased;
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
+#book { max-width: var(--measure); margin: 0 auto; padding: 80px 28px 160px; }
+
+/* ---- Opener ---------------------------------------------------------------------------------------------------- */
+
+.opener { margin: 8px 0 64px; }
+.kicker { font: 600 12px/1.4 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+.chapnum {
+  font: 300 120px/0.86 var(--serif);
+  color: var(--accent);
+  margin: 34px 0 18px -4px;
+  letter-spacing: -0.03em;
+  font-variant-numeric: lining-nums;
+}
+.opener h1 { font: 600 46px/1.08 var(--serif); letter-spacing: -0.015em; margin: 0 0 20px; text-wrap: balance; }
+.standfirst { font: italic 400 23px/1.45 var(--serif); color: var(--ink-2); margin: 0; text-wrap: balance; }
+.opener::after { content: ""; display: block; width: 56px; height: 3px; border-radius: 2px; background: var(--accent); margin-top: 40px; }
+
+/* ---- Running text ---------------------------------------------------------------------------------------------- */
+
+p { margin: 0 0 0.95em; text-wrap: pretty; hyphens: auto; -webkit-hyphens: auto; hanging-punctuation: first; }
+strong { font-weight: 650; }
+a { color: inherit; text-decoration-color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+.sec { margin: 0; }
+.sec h2 {
+  font: 600 29px/1.2 var(--serif);
+  letter-spacing: -0.01em;
+  margin: 2.3em 0 0.75em;
+  text-wrap: balance;
+}
+.secnum {
+  display: block;
+  font: 650 12px/1 var(--sans);
+  letter-spacing: 0.16em;
+  color: var(--accent);
+  margin-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.prose h3 { font: 600 20px/1.3 var(--serif); margin: 1.7em 0 0.5em; }
+.prose h4 { font: 650 13px/1.3 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin: 1.6em 0 0.5em; }
+
+/* The first paragraph opens with a drop cap. */
+.sec.intro .prose:first-child > p:first-child::first-letter {
+  -webkit-initial-letter: 3;
+  initial-letter: 3;
+  color: var(--accent);
+  font-weight: 500;
+  margin-right: 0.08em;
+}
+
+ul, ol { margin: 0 0 0.95em; padding-left: 1.25em; }
+li { margin: 0.3em 0; padding-left: 0.15em; }
+li::marker { color: var(--ink-3); }
+ol li::marker { font: 600 0.82em var(--sans); }
+
+blockquote { margin: 1.4em 0; padding: 0 0 0 1.1em; border-left: 2px solid var(--accent); color: var(--ink-2); font-style: italic; }
+blockquote p:last-child { margin-bottom: 0; }
+
+hr { border: 0; height: 1px; background: var(--rule); width: 40%; margin: 2.6em auto; }
+
+code { font: 0.84em var(--mono); background: var(--tint); padding: 0.12em 0.36em; border-radius: 4px; }
+pre { font: 14px/1.55 var(--mono); background: var(--tint); padding: 14px 16px; border-radius: 8px; overflow-x: auto; }
+pre code { background: none; padding: 0; font-size: 1em; }
+
+/* ---- Tables ---------------------------------------------------------------------------------------------------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5em 0 1.8em;
+  font: 15px/1.45 var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+thead th {
+  text-align: left;
+  font-weight: 650;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 14px 9px 0;
+  border-bottom: 1.5px solid var(--ink);
+}
+td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td strong { font-weight: 650; }
+
+/* ---- Boxes ----------------------------------------------------------------------------------------------------- */
+
+.label { font: 700 11px/1 var(--sans); letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 12px; }
+
+.box { margin: 2em 0; padding: 20px 24px 6px; border-radius: 12px; background: var(--tint); font-size: 17.5px; line-height: 1.58; }
+.box p { margin-bottom: 0.8em; }
+.box > :last-child { margin-bottom: 14px; }
+.box-title { font: 600 19.5px/1.3 var(--serif); margin: -2px 0 10px; }
+
+.box-course {
+  background: color-mix(in srgb, var(--accent) 7%, var(--paper));
+  border-left: 3px solid var(--accent);
+  border-radius: 2px 12px 12px 2px;
+}
+.box-course .label { color: var(--accent); }
+.box-example { background: transparent; border: 1px solid var(--rule); }
+.box-warning .label { color: var(--accent); }
+
+/* ---- Check yourself -------------------------------------------------------------------------------------------- */
+
+.check { margin: 1.4em 0 2em; }
+.check ol { list-style: none; padding: 0; margin: 0; counter-reset: q; }
+.check li { counter-increment: q; border-top: 1px solid var(--rule); padding: 0; margin: 0; }
+.check li:last-child { border-bottom: 1px solid var(--rule); }
+.check summary {
+  list-style: none;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 2.1em 1fr auto;
+  align-items: baseline;
+  gap: 0 0.5em;
+  padding: 16px 0;
+  font-weight: 600;
+}
+.check summary::-webkit-details-marker { display: none; }
+.check summary::before { content: counter(q); font: 650 13px/1 var(--sans); color: var(--accent); font-variant-numeric: tabular-nums; }
+.check summary::after { content: "Answer"; font: 650 10.5px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); padding-left: 12px; }
+.check details[open] summary::after { content: "Hide"; }
+.check summary:hover::after { color: var(--accent); }
+.answer { margin: -4px 0 0 2.6em; padding: 0 0 14px; color: var(--ink-2); }
+.answer p:last-child { margin-bottom: 0.4em; }
+
+/* ---- Figures and maths ----------------------------------------------------------------------------------------- */
+
+.fig { margin: 2.2em 0; text-align: center; }
+.fig svg { width: 100%; max-width: 540px; height: auto; color: var(--fig-ink); font-family: var(--sans); overflow: visible; }
+.fig svg.diagram { max-width: 500px; }
+/* A model's drawing is line art in the text colour: shapes it left unfilled are outlines, not black blocks. */
+.fig svg:not(.diagram) { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.fig svg:not(.diagram) text { fill: currentColor; stroke: none; }
+.fig figcaption { font: 13.5px/1.45 var(--sans); color: var(--ink-3); margin-top: 12px; text-wrap: balance; }
+
+.katex { font-size: 1.04em; }
+.katex-display { margin: 1.3em 0; padding: 2px 0; overflow-x: auto; overflow-y: hidden; }
+
+#end { height: 1px; }
+
+/* ---- Preview chrome (only outside the app) -------------------------------------------------------------------- */
+
+.toolbar { display: none; }
+.chrome .toolbar { display: flex; position: fixed; top: 14px; right: 16px; gap: 6px; z-index: 10; }
+.toolbar button {
+  font: 600 12px/1 var(--sans);
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--paper) 85%, transparent);
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 7px 11px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.toolbar button:hover { color: var(--accent); }
+.present .toolbar [data-action="present"] { display: none; }
+.toolbar [data-action="read"] { display: none; }
+.present .toolbar [data-action="read"] { display: inline-block; }
+
+/* ---- Present --------------------------------------------------------------------------------------------------- */
+
+#deck { display: none; }
+.present body { overflow: hidden; }
+.present #book { display: none; }
+.present #deck { display: block; position: fixed; inset: 0; }
+
+.slide {
+  position: absolute;
+  inset: 0;
+  display: none;
+  overflow-y: auto;
+  padding: 9vh 8vw 11vh;
+  font-size: clamp(21px, 2vw, 28px);
+  line-height: 1.45;
+}
+.slide.active { display: flex; animation: slide-in 160ms ease-out; }
+.slide.measuring { display: flex; visibility: hidden; }
+.more-label { font: 650 0.42em/1.3 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 1.4em; }
+.slide-points { font-size: 1.1em; }
+.slide-points ul { padding-left: 1em; margin: 0; }
+.slide-points li { margin: 0.55em 0; padding-left: 0.2em; }
+.slide-points li::marker { color: var(--accent); }
+.slide-points p { margin: 0 0 0.6em; }
+.slide-inner { margin: auto; width: 100%; max-width: 34em; }
+.slide h2 { font: 600 1.55em/1.15 var(--serif); letter-spacing: -0.012em; margin: 0 0 0.9em; text-wrap: balance; }
+.slide .secnum { font-size: 0.48em; margin-bottom: 0.8em; }
+.slide p { hyphens: manual; -webkit-hyphens: manual; }
+.slide .box { font-size: 0.86em; }
+.slide table { font-size: 0.62em; }
+.slide .fig svg { max-width: 760px; }
+.slide .check summary::after { font-size: 0.42em; }
+.slide.title-slide .opener { margin: 0; }
+.slide.title-slide .chapnum { font-size: 5.2em; }
+.slide.title-slide h1 { font-size: 2.3em; }
+.slide.title-slide .standfirst { font-size: 1.05em; }
+
+.deck-progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; }
+.deck-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 200ms ease-out; }
+.deck-count { position: fixed; right: 26px; bottom: 20px; font: 600 12px/1 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; letter-spacing: 0.06em; }
+
+/* Movement only, never a fade: content must be visible even if the animation doesn't run. */
+@keyframes slide-in { from { transform: translateY(8px); } to { transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .slide.active { animation: none; }
+  .deck-progress i { transition: none; }
+}
+
+/* ---- Narrow windows -------------------------------------------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  body { font-size: 17.5px; }
+  #book { padding: 56px 20px 120px; }
+  .chapnum { font-size: 88px; }
+  .opener h1 { font-size: 36px; }
+  .standfirst { font-size: 20px; }
+  .sec h2 { font-size: 25px; }
+}
+
+@media print {
+  .toolbar, #deck { display: none !important; }
+  #book { padding: 0; max-width: none; }
+  .check details > .answer { display: block; }
+  .sec h2 { break-after: avoid; }
+  .box, .fig, table { break-inside: avoid; }
+}

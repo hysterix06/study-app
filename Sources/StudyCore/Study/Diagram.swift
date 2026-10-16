@@ -457,11 +457,20 @@ public enum DiagramSVG {
     public static let areaFills = ["#e0a526", "#8b5cd6", "#c2416b", "#6b7280"]
     public static let ink = "#3a3f47"
 
-    public static func render(_ d: Diagram, width: Double = 480) -> String {
+    /// `themed` draws for a page that supplies the colours (the book): every paint is a CSS variable (`--fig-ink`,
+    /// `--fig-paper`, `--fig-s0`…`--fig-s5`, `--fig-a0`…`--fig-a3`) and the size comes from the page, so the same
+    /// drawing works in light and dark. Otherwise the colours are fixed, for exports.
+    public static func render(_ d: Diagram, width: Double = 480, themed: Bool = false) -> String {
         let height = DiagramLayout.height(d, width: width)
         var body: [String] = []
         func f(_ v: Double) -> String { String(format: "%.1f", v) }
-        func color(_ i: Int) -> String { series[i % series.count] }
+        func paint(stroke: Paint? = nil, fill: Paint? = nil) -> String {
+            if themed {
+                let parts = [stroke.map { "stroke:var(--fig-\($0.token))" }, fill.map { "fill:var(--fig-\($0.token))" }].compactMap { $0 }
+                return parts.isEmpty ? "" : " style=\"\(parts.joined(separator: ";"))\""
+            }
+            return (stroke.map { " stroke=\"\($0.hex)\"" } ?? "") + (fill.map { " fill=\"\($0.hex)\"" } ?? "")
+        }
         for s in DiagramLayout.shapes(d, width: width, height: height) {
             switch s {
             case let .line(start, points, curves, stroke):
@@ -471,40 +480,62 @@ public enum DiagramSVG {
                 } else {
                     for p in points { path += " L\(f(p.x)) \(f(p.y))" }
                 }
-                let (stroke, w, dash): (String, Double, String?) = {
+                let (color, w, dash): (Paint, Double, String?) = {
                     switch stroke {
-                    case .axis: return (ink, 1.5, nil)
-                    case .guide: return (ink, 1, "3 3")
-                    case .curve(let i, let dashed): return (color(i), 2.25, dashed ? "6 4" : nil)
-                    case .arrow: return (ink, 1.5, nil)
-                    case .box: return (ink, 1, nil)
+                    case .axis: return (.ink, 1.5, nil)
+                    case .guide: return (.ink, 1, "3 3")
+                    case .curve(let i, let dashed): return (.series(i), 2.25, dashed ? "6 4" : nil)
+                    case .arrow: return (.ink, 1.5, nil)
+                    case .box: return (.ink, 1, nil)
                     }
                 }()
-                body.append("<path d=\"\(path)\" fill=\"none\" stroke=\"\(stroke)\" stroke-width=\"\(f(w))\"\(dash.map { " stroke-dasharray=\"\($0)\"" } ?? "") stroke-linecap=\"round\" stroke-linejoin=\"round\"/>")
+                body.append("<path d=\"\(path)\" fill=\"none\"\(paint(stroke: color)) stroke-width=\"\(f(w))\"\(dash.map { " stroke-dasharray=\"\($0)\"" } ?? "") stroke-linecap=\"round\" stroke-linejoin=\"round\"/>")
             case let .fill(points, tone):
-                body.append("<polygon points=\"\(points.map { "\(f($0.x)),\(f($0.y))" }.joined(separator: " "))\" fill=\"\(areaFills[tone % areaFills.count])\" fill-opacity=\"0.22\"/>")
+                body.append("<polygon points=\"\(points.map { "\(f($0.x)),\(f($0.y))" }.joined(separator: " "))\"\(paint(fill: .area(tone))) fill-opacity=\"0.22\"/>")
             case let .dot(p, _):
-                body.append("<circle cx=\"\(f(p.x))\" cy=\"\(f(p.y))\" r=\"3.5\" fill=\"\(ink)\"/>")
+                body.append("<circle cx=\"\(f(p.x))\" cy=\"\(f(p.y))\" r=\"3.5\"\(paint(fill: .ink))/>")
             case let .arrowHead(tip, from):
                 let (a, b) = arrowWings(tip: tip, from: from)
-                body.append("<path d=\"M\(f(a.x)) \(f(a.y)) L\(f(tip.x)) \(f(tip.y)) L\(f(b.x)) \(f(b.y))\" fill=\"none\" stroke=\"\(ink)\" stroke-width=\"1.5\" stroke-linecap=\"round\"/>")
+                body.append("<path d=\"M\(f(a.x)) \(f(a.y)) L\(f(tip.x)) \(f(tip.y)) L\(f(b.x)) \(f(b.y))\" fill=\"none\"\(paint(stroke: .ink)) stroke-width=\"1.5\" stroke-linecap=\"round\"/>")
             case let .box(o, w, h):
-                body.append("<rect x=\"\(f(o.x))\" y=\"\(f(o.y))\" width=\"\(f(w))\" height=\"\(f(h))\" rx=\"7\" fill=\"#ffffff\" fill-opacity=\"0.6\" stroke=\"\(ink)\" stroke-width=\"1\"/>")
+                body.append("<rect x=\"\(f(o.x))\" y=\"\(f(o.y))\" width=\"\(f(w))\" height=\"\(f(h))\" rx=\"7\"\(paint(stroke: .ink, fill: .paper)) fill-opacity=\"0.6\" stroke-width=\"1\"/>")
             case let .text(t, at, anchor, role, seriesIndex):
                 let a = anchor == .start ? "start" : anchor == .middle ? "middle" : "end"
                 let size = role == .title ? 13 : role == .tick ? 11 : 12
                 let weight = role == .title || role == .label ? " font-weight=\"600\"" : ""
-                let fill = seriesIndex.map(color) ?? ink
-                // A white halo keeps labels readable where they cross a line.
-                let halo = role == .step || role == .title ? "" : " stroke=\"#ffffff\" stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\""
-                body.append("<text x=\"\(f(at.x))\" y=\"\(f(at.y))\" text-anchor=\"\(a)\" font-size=\"\(size)\"\(weight) fill=\"\(fill)\"\(halo)>\(escape(t))</text>")
+                let color: Paint = seriesIndex.map { .series($0) } ?? .ink
+                // A halo in the paper colour keeps labels readable where they cross a line.
+                let haloed = !(role == .step || role == .title)
+                let halo = haloed ? " stroke-width=\"3\" stroke-linejoin=\"round\" paint-order=\"stroke\"" : ""
+                body.append("<text x=\"\(f(at.x))\" y=\"\(f(at.y))\" text-anchor=\"\(a)\" font-size=\"\(size)\"\(weight)\(paint(stroke: haloed ? .paper : nil, fill: color))\(halo)>\(escape(t))</text>")
             }
         }
+        let size = themed ? " class=\"diagram\"" : " width=\"\(f(width))\" height=\"\(f(height))\" font-family=\"-apple-system, Helvetica, Arial, sans-serif\""
         return """
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 \(f(width)) \(f(height))" width="\(f(width))" height="\(f(height))" font-family="-apple-system, Helvetica, Arial, sans-serif" role="img" aria-label="\(escape(d.summary))">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 \(f(width)) \(f(height))"\(size) role="img" aria-label="\(escape(d.summary))">
         \(body.joined(separator: "\n"))
         </svg>
         """
+    }
+
+    enum Paint {
+        case ink, paper, series(Int), area(Int)
+        var hex: String {
+            switch self {
+            case .ink: return DiagramSVG.ink
+            case .paper: return "#ffffff"
+            case .series(let i): return DiagramSVG.series[i % DiagramSVG.series.count]
+            case .area(let i): return DiagramSVG.areaFills[i % DiagramSVG.areaFills.count]
+            }
+        }
+        var token: String {
+            switch self {
+            case .ink: return "ink"
+            case .paper: return "paper"
+            case .series(let i): return "s\(i % DiagramSVG.series.count)"
+            case .area(let i): return "a\(i % DiagramSVG.areaFills.count)"
+            }
+        }
     }
 
     /// The two ends of an arrowhead's wings, 9 points back from the tip at ±28°.
