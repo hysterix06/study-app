@@ -346,3 +346,24 @@ extension BookStore {
         _ = try? db.execute("UPDATE courses SET files_synced_at = ? WHERE id = ?", [now, courseId])
     }
 }
+
+// MARK: - Backups
+
+extension BookStore {
+    /// One copy a day in Backups (`VACUUM INTO` is safe while the app runs), keeping the newest `keep`. Returns the
+    /// copy made, or nil when today's exists.
+    @discardableResult
+    public func backUpIfDue(now: Date = Date(), keep: Int = 7) throws -> URL? {
+        let fm = FileManager.default
+        paths.ensureFolders()
+        let target = paths.backups.appendingPathComponent("book-\(LocalDate(now, tz: .current).string).db")
+        guard !fm.fileExists(atPath: target.path) else { return nil }
+        try db.execute("VACUUM INTO ?", [target.path])
+        let copies = ((try? fm.contentsOfDirectory(atPath: paths.backups.path)) ?? [])
+            .filter { $0.hasPrefix("book-") && $0.hasSuffix(".db") }.sorted()
+        for old in copies.dropLast(keep) {
+            for suffix in ["", "-wal", "-shm"] { try? fm.removeItem(at: paths.backups.appendingPathComponent(old + suffix)) }
+        }
+        return target
+    }
+}

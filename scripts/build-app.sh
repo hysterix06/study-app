@@ -30,13 +30,14 @@ MASTER="$ICONWORK/AppIcon-1024.png"
 cp "$MASTER" Resources/Icon/AppIcon-1024.png
 
 echo "→ Assembling the app bundle"
+# From scratch each time, so nothing from an older build ends up in the app.
+rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/StudyTracker" "$APP/Contents/MacOS/StudyTracker"
 cp "$ICONWORK/Assets.car" "$APP/Contents/Resources/Assets.car"
 cp "$ICONWORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 # The book page: marked and KaTeX, bundled so nothing loads from the network. (Not SwiftPM resources: Bundle.module
 # in an executable target breaks signing.)
-rm -rf "$APP/Contents/Resources/LessonKit" "$APP/Contents/Resources/Book"
 ditto Resources/Book "$APP/Contents/Resources/Book"
 rm -f "$APP/Contents/Resources/Book/preview.html"
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -79,7 +80,7 @@ if [[ "${1:-}" == "--install" ]]; then
   if pgrep -x StudyTracker >/dev/null; then osascript -e 'quit app "Study Tracker"' || true; sleep 1; fi
   INSTALLED="/Applications/Study Tracker.app"
   LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-  # Replaced, not merged: files an older version had (study-mcp, LessonKit) would otherwise stay and break the seal.
+  # Replaced, not merged: files an older version had would otherwise stay and break the seal.
   rm -rf "$INSTALLED"
   ditto "$APP" "$INSTALLED"
   # The staged copy has the same bundle ID, so it would show up as a second app in Apps and Spotlight.

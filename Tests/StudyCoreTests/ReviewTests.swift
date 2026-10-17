@@ -122,3 +122,24 @@ final class ReviewTests: XCTestCase {
         XCTAssertEqual(doc.payload(kicker: nil, number: 1, language: "en")["cards"] as? Int, 2, "the page says how many cards joined review")
     }
 }
+
+final class BackupTests: XCTestCase {
+    func testOneCopyADayKeepingSeven() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("backup-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try BookStore.open(paths: AppPaths(database: root.appendingPathComponent("book.db"), root: root))
+        store.setSetting("moodle_url", "https://moodle.example.edu")
+        let start = ISO.parse("2026-10-01T12:00:00Z")!
+        let first = try store.backUpIfDue(now: start)
+        XCTAssertNotNil(first)
+        XCTAssertNil(try store.backUpIfDue(now: start.addingTimeInterval(3600)), "one a day")
+        let copy = try BookStore.open(paths: AppPaths(database: first!, root: root))
+        XCTAssertEqual(copy.setting("moodle_url"), "https://moodle.example.edu", "the copy opens and holds the data")
+        for day in 1...9 { try store.backUpIfDue(now: start.addingTimeInterval(Double(day) * 86_400)) }
+        let all = try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("Backups").path)
+        let names = all.filter { $0.hasSuffix(".db") }.sorted()
+        XCTAssertFalse(all.contains("book-2026-10-01.db-wal"), "an old copy goes with its side files")
+        XCTAssertEqual(names.count, 7)
+        XCTAssertEqual(names.last, "book-2026-10-10.db")
+    }
+}

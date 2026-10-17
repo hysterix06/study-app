@@ -53,6 +53,7 @@ final class AppModel {
         })
         reload()
         guard autoSync else { return }
+        Task.detached(priority: .background) { try? store.backUpIfDue() }
         Task { await writer.start() }
         if moodleSite != nil { Task { await sync() } }
         Task { await refreshTimetable() }
