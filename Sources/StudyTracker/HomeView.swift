@@ -36,6 +36,8 @@ struct HomeContent: View {
                 ConnectMoodleCard()
             } else if model.engineChoice == nil && !model.engineDeclined {
                 WriteBooksCard()
+            } else if model.timetableSource == nil && !model.timetableDeclined {
+                TimetableCard()
             }
             if model.moodleSite != nil {
                 thisWeek
@@ -59,13 +61,19 @@ struct HomeContent: View {
     var thisWeek: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionLabel("This week")
-            if model.deadlines.isEmpty {
-                Text(model.syncing && model.lastSync == nil ? "Looking for deadlines…" : "Nothing due in the next 7 days.")
+            let week = model.week
+            if week.overdue.isEmpty && week.days.isEmpty {
+                Text(model.syncing && model.lastSync == nil ? "Looking for deadlines…"
+                     : model.timetableSource == nil ? "Nothing due in the next 7 days." : "Nothing on in the next 7 days.")
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(model.deadlines) { d in DeadlineRow(deadline: d, course: model.course(d.courseId)) }
+                    if !week.overdue.isEmpty { DayRows(label: "Overdue", items: week.overdue, overdue: true) }
+                    ForEach(week.days) { day in DayRows(label: Format.day(day.date.at(LocalTime(hour: 12, minute: 0), tz: .current)), items: day.items) }
                 }
+            }
+            if let error = model.timetableError {
+                Text("Timetable: \(error)").font(.callout).foregroundStyle(.secondary)
             }
             if model.dueCards > 0 {
                 Button { model.reviewing = true } label: { Text("Review \(model.dueCards) card\(model.dueCards == 1 ? "" : "s")") }
@@ -144,35 +152,79 @@ struct FlowLayout: Layout {
     }
 }
 
-struct DeadlineRow: View {
-    let deadline: Deadline
-    let course: Course?
+/// One day of the week: its name beside the first row, then its classes and deadlines in time order.
+struct DayRows: View {
+    @Environment(AppModel.self) var model
+    let label: String
+    let items: [Agenda.Item]
+    var overdue = false
 
-    var overdue: Bool { (deadline.dueAt ?? .distantFuture) < Date() }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                WeekRow(day: i == 0 ? label : "", item: item, course: item.courseId.flatMap { model.course($0) }, overdue: overdue)
+            }
+            Divider()
+        }
+    }
+}
+
+/// A class ("09:00 · Economics · Room B204") or a deadline ("17:50 · Topic 3 quiz · Due, Spanish 2").
+struct WeekRow: View {
+    let day: String
+    let item: Agenda.Item
+    let course: Course?
+    var overdue = false
+
+    var past: Bool { (item.end ?? item.start) < Date() && item.kind == .lesson }
 
     var body: some View {
         Button {
-            if let s = deadline.url, let url = URL(string: s) { NSWorkspace.shared.open(url) }
+            if let s = item.url, let url = URL(string: s) { NSWorkspace.shared.open(url) }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Text(overdue ? "Overdue" : deadline.dueAt.map { Format.day($0) } ?? "")
+                Text(day)
                     .font(.callout.weight(.medium))
                     .foregroundStyle(overdue ? Color.red : Color.primary)
                     .frame(width: 92, alignment: .leading)
-                Circle().fill(Color.course(course?.color ?? 0)).frame(width: 8, height: 8).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(deadline.title).font(.body)
-                    Text(course?.title ?? "").font(.callout).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Text(time).font(.callout).monospacedDigit().foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
+                    marker.alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title).strikethrough(item.cancelled).foregroundStyle(item.cancelled ? .secondary : .primary)
+                        if let detail { Text(detail).font(.callout).foregroundStyle(.secondary) }
+                    }
+                    Spacer(minLength: 8)
+                    if item.cancelled {
+                        Text("CANCELLED").font(.system(size: 9, weight: .bold)).tracking(1).foregroundStyle(.secondary)
+                    }
                 }
-                Spacer()
-                if let due = deadline.dueAt { Text(Format.time(due)).font(.callout).monospacedDigit().foregroundStyle(.secondary) }
+                .opacity(past ? 0.5 : 1)
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, 7)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(deadline.url == nil ? "" : "Open in Moodle")
-        Divider()
+        .help(item.url == nil ? "" : "Open in Moodle")
+    }
+
+    var time: String {
+        if item.allDay { return "All day" }
+        return overdue ? item.start.formatted(.dateTime.day().month(.abbreviated)) : Format.time(item.start)
+    }
+
+    /// A class is a filled dot in its course's colour; a deadline an outlined one.
+    @ViewBuilder var marker: some View {
+        let color = course.map { Color.course($0.color) } ?? Color.secondary
+        if item.kind == .deadline { Circle().strokeBorder(color, lineWidth: 2).frame(width: 9, height: 9) }
+        else { Circle().fill(color).frame(width: 9, height: 9) }
+    }
+
+    var detail: String? {
+        switch item.kind {
+        case .deadline: return ["Due", course?.title].compactMap { $0 }.joined(separator: " · ")
+        case .lesson: return item.location
+        }
     }
 }
 

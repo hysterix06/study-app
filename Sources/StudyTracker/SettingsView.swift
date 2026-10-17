@@ -23,6 +23,7 @@ struct SettingsView: View {
                     Text("Not connected. Connect Moodle from the main window.").foregroundStyle(.secondary)
                 }
             }
+            TimetableSettings()
             Section("Books") {
                 if let engine = model.engineChoice {
                     LabeledContent("Written by", value: engine == .claudeCode ? "Claude Code (your Claude plan)" : "Anthropic API key")

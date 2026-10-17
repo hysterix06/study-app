@@ -60,7 +60,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSHumanReadableCopyright</key><string>Your data stays on this Mac.</string>
-  <key>NSCalendarsFullAccessUsageDescription</key><string>Study Tracker can put your deadlines in a calendar so they appear on your iPhone.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Study Tracker can read your timetable from a calendar on this Mac, and put your deadlines in a calendar of their own so they appear on your iPhone.</string>
 </dict>
 </plist>
 PLIST
@@ -79,6 +79,8 @@ if [[ "${1:-}" == "--install" ]]; then
   if pgrep -x StudyTracker >/dev/null; then osascript -e 'quit app "Study Tracker"' || true; sleep 1; fi
   INSTALLED="/Applications/Study Tracker.app"
   LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  # Replaced, not merged: files an older version had (study-mcp, LessonKit) would otherwise stay and break the seal.
+  rm -rf "$INSTALLED"
   ditto "$APP" "$INSTALLED"
   # The staged copy has the same bundle ID, so it would show up as a second app in Apps and Spotlight.
   "$LSREGISTER" -u "$APP" >/dev/null 2>&1 || true   # fails harmlessly if it was never registered

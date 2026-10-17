@@ -14,6 +14,14 @@ public enum Timetable {
         public var description: String?
         public var url: String?
         public var categories: [String] = []
+        /// A class called off: still shown, struck through, so the gap in the week makes sense.
+        public var cancelled = false
+
+        public init(uid: String, summary: String, start: Date, end: Date?, allDay: Bool, location: String? = nil, description: String? = nil,
+                    url: String? = nil, categories: [String] = [], cancelled: Bool = false) {
+            self.uid = uid; self.summary = summary; self.start = start; self.end = end; self.allDay = allDay; self.location = location
+            self.description = description; self.url = url; self.categories = categories; self.cancelled = cancelled
+        }
     }
 
     /// Events overlapping `from` through `to` (whole days in `tz`), earliest first.
@@ -24,7 +32,7 @@ public enum Timetable {
         // A moved class whose series isn't in the file is still a class.
         let known = Set(masters.map(\.uid))
         for (uid, list) in overrides where !known.contains(uid) {
-            for o in list where !o.isCancelled {
+            for o in list {
                 var single = o
                 single.recurrenceId = nil
                 out += expand(single, overrides: [], defaultTZ: tz, horizonStart: from, horizonEnd: to)
@@ -32,7 +40,21 @@ public enum Timetable {
         }
         let midnight = LocalTime(hour: 0, minute: 0)
         let lower = from.at(midnight, tz: tz), upper = to.adding(days: 1).at(midnight, tz: tz)
-        return out.filter { $0.start < upper && ($0.end ?? $0.start.addingTimeInterval(1)) > lower }.sorted { $0.start < $1.start }
+        return out.filter { $0.start < upper && ($0.end ?? $0.start.addingTimeInterval(1)) > lower }
+            .map(markCancelled).sorted { $0.start < $1.start }
+    }
+
+    /// Outlook keeps a called-off class in attendees' calendars with "Canceled:" in front of its title.
+    static let cancelledPrefix = try! NSRegularExpression(pattern: #"^\s*(cancell?ed|canceled|cancelad[oa]|annulé|abgesagt)\s*:\s*"#, options: .caseInsensitive)
+
+    public static func markCancelled(_ i: Instance) -> Instance {
+        var i = i
+        let range = NSRange(i.summary.startIndex..., in: i.summary)
+        if let m = cancelledPrefix.firstMatch(in: i.summary, range: range), let r = Range(m.range, in: i.summary) {
+            i.summary.removeSubrange(r)
+            i.cancelled = true
+        }
+        return i
     }
 
     static func expand(_ ev: ICSEvent, overrides: [ICSEvent], defaultTZ: TimeZone, horizonStart: LocalDate?, horizonEnd: LocalDate) -> [Instance] {
@@ -49,7 +71,8 @@ public enum Timetable {
         guard let rule = ev.rrule else {
             let s = allDay ? dtstart.date.utcMidnight : dtstart.instant(default: defaultTZ)
             return [Instance(uid: ev.uid, summary: ev.summary, start: s, end: allDay ? nil : s.addingTimeInterval(duration),
-                             allDay: allDay, location: ev.location, description: ev.description, url: ev.url, categories: ev.categories)]
+                             allDay: allDay, location: ev.location, description: ev.description, url: ev.url, categories: ev.categories,
+                             cancelled: ev.isCancelled)]
         }
         let (firstDate, _) = dtstart.local(in: tz, default: defaultTZ)
         var until = horizonEnd
@@ -102,17 +125,17 @@ public enum Timetable {
             if let hs = horizonStart, date < hs { continue }
             let uid = "\(ev.uid)@\(date.string)"
             if let o = overrideByDate[date] {
-                if o.isCancelled { continue }
                 guard let os = o.dtstart else { continue }
                 let s = os.isDateOnly ? os.date.utcMidnight : os.instant(default: tz)
                 out.append(Instance(uid: uid, summary: o.summary.isEmpty ? ev.summary : o.summary, start: s,
                                     end: os.isDateOnly ? nil : (o.endInstant(default: tz) ?? s.addingTimeInterval(duration)),
                                     allDay: os.isDateOnly, location: o.location ?? ev.location, description: o.description ?? ev.description, url: ev.url,
-                                    categories: ev.categories))
+                                    categories: ev.categories, cancelled: o.isCancelled))
             } else {
                 let s = startInstant(date)
                 out.append(Instance(uid: uid, summary: ev.summary, start: s, end: allDay ? nil : s.addingTimeInterval(duration),
-                                    allDay: allDay, location: ev.location, description: ev.description, url: ev.url, categories: ev.categories))
+                                    allDay: allDay, location: ev.location, description: ev.description, url: ev.url, categories: ev.categories,
+                                    cancelled: ev.isCancelled))
             }
         }
         return out

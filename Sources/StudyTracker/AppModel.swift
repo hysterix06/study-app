@@ -4,7 +4,8 @@ import Observation
 import StudyCore
 
 /// The app's state: what Home shows, the Moodle sync that keeps it current (at launch and every three hours while
-/// the app is open), and the writer that turns each course into a book in the background.
+/// the app is open), the timetable (refreshed every half hour), and the writer that turns each course into a book in
+/// the background.
 @Observable @MainActor
 final class AppModel {
     let store: BookStore
@@ -23,6 +24,13 @@ final class AppModel {
     private(set) var dueCards = 0
     /// The review sheet is open.
     var reviewing = false
+    /// This week on Home: classes and deadlines day by day, and work overdue.
+    private(set) var week: (overdue: [Agenda.Item], days: [Agenda.Day]) = ([], [])
+    private(set) var timetableError: String?
+    private(set) var mirrorError: String?
+    @ObservationIgnored let calendar = CalendarAccess()
+    /// The stored timetable, parsed once per download.
+    @ObservationIgnored private var parsed: (stamp: String, events: [ICSEvent])?
     /// Bumped on every reload, so views that read the store directly redraw.
     private(set) var revision = 0
     @ObservationIgnored private var timer: Timer?
@@ -47,10 +55,12 @@ final class AppModel {
         guard autoSync else { return }
         Task { await writer.start() }
         if moodleSite != nil { Task { await sync() } }
+        Task { await refreshTimetable() }
         timer = Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 self.reload()
+                await self.refreshTimetable()
                 guard let last = self.lastSync, Date().timeIntervalSince(last) >= Self.syncInterval else { return }
                 await self.sync()
             }
@@ -76,6 +86,9 @@ final class AppModel {
         lastStatus = store.setting("moodle_last_status")
         needsSignIn = store.setting("moodle_needs_signin") == "1"
         dueCards = store.dueCount()
+        timetableError = store.setting("timetable_error")
+        let today = LocalDate(Date(), tz: .current)
+        week = Agenda.week(classes: classes(from: today, to: today.adding(days: 6)), deadlines: deadlines, courses: courses)
         revision += 1
     }
 
@@ -117,6 +130,7 @@ final class AppModel {
         progress = nil
         reload()
         if report.needsSignIn { needsSignIn = true }
+        updateMirror()
         await writer.kick()
     }
 
@@ -130,6 +144,107 @@ final class AppModel {
         store.setHidden(course.id, hidden)
         reload()
         if !hidden { Task { await sync() } }
+    }
+
+    // MARK: Timetable
+
+    enum TimetableSource: String { case link, calendar }
+
+    var timetableSource: TimetableSource? { store.setting("timetable_source").flatMap(TimetableSource.init(rawValue:)) }
+    var timetableDeclined: Bool { store.setting("timetable_declined") == "1" }
+    var timetableCalendars: [String] { JSON.stringArray(store.setting("timetable_calendars")) }
+    var timetableLink: String? { timetableSource == .link ? Keychain.get(TimetableFeed.account) : nil }
+
+    func classes(from: LocalDate, to: LocalDate) -> [Timetable.Instance] {
+        switch timetableSource {
+        case .link?:
+            guard let text = store.timetableText else { return [] }
+            let stamp = store.setting("timetable_fetched_at") ?? ""
+            if parsed?.stamp != stamp { parsed = (stamp, (try? ICS.parse(text)) ?? []) }
+            return Timetable.occurrences(parsed?.events ?? [], from: from, to: to, tz: .current)
+        case .calendar?:
+            let midnight = LocalTime(hour: 0, minute: 0)
+            return calendar.classes(calendarIds: timetableCalendars, from: from.at(midnight, tz: .current), to: to.adding(days: 1).at(midnight, tz: .current))
+        case nil:
+            return []
+        }
+    }
+
+    /// Checks the link and starts using it. Returns what went wrong, if anything.
+    func setTimetableLink(_ link: String) async -> String? {
+        guard let url = TimetableFeed.normalize(link) else { return TimetableFeed.Failure.badLink.description }
+        do {
+            let (text, events) = try await TimetableFeed.fetch(url)
+            Keychain.set(url.absoluteString, account: TimetableFeed.account)
+            store.saveTimetable(text, events: events)
+            store.setSetting("timetable_source", TimetableSource.link.rawValue)
+            store.setSetting("timetable_declined", nil)
+            store.setSetting("timetable_error", nil)
+            reload()
+            return nil
+        } catch {
+            return Self.describe(error)
+        }
+    }
+
+    /// Downloads the timetable again when it's more than half an hour old.
+    func refreshTimetable(force: Bool = false) async {
+        guard timetableSource == .link, let link = Keychain.get(TimetableFeed.account), let url = TimetableFeed.normalize(link) else { return }
+        if !force, let at = store.timetableFetchedAt, Date().timeIntervalSince(at) < TimetableFeed.refreshInterval { return }
+        do {
+            let (text, events) = try await TimetableFeed.fetch(url)
+            store.saveTimetable(text, events: events)
+            store.setSetting("timetable_error", nil)
+        } catch {
+            store.setSetting("timetable_error", Self.describe(error))
+        }
+        reload()
+    }
+
+    func useCalendars(_ ids: [String]) {
+        store.setSetting("timetable_source", ids.isEmpty ? nil : TimetableSource.calendar.rawValue)
+        store.setSetting("timetable_calendars", ids.isEmpty ? nil : JSON.string(ids))
+        store.setSetting("timetable_declined", nil)
+        reload()
+    }
+
+    func removeTimetable() {
+        Keychain.delete(TimetableFeed.account)
+        store.clearTimetable()
+        for key in ["timetable_source", "timetable_calendars", "timetable_error"] { store.setSetting(key, nil) }
+        reload()
+    }
+
+    func declineTimetable() {
+        store.setSetting("timetable_declined", "1")
+        reload()
+    }
+
+    static func describe(_ error: Error) -> String { (error as? TimetableFeed.Failure)?.description ?? error.localizedDescription }
+
+    // MARK: Deadlines in Calendar
+
+    var mirrorsDeadlines: Bool { store.setting("deadline_mirror") == "1" }
+
+    func setMirror(_ on: Bool) async {
+        if on {
+            guard await calendar.requestAccess() else {
+                mirrorError = "Study Tracker isn't allowed to use Calendar. Allow it in System Settings › Privacy & Security › Calendars."
+                return
+            }
+            store.setSetting("deadline_mirror", "1")
+            updateMirror()
+        } else {
+            store.setSetting("deadline_mirror", nil)
+            calendar.removeMirror(store: store)
+            mirrorError = nil
+        }
+        reload()
+    }
+
+    func updateMirror() {
+        guard mirrorsDeadlines else { return }
+        mirrorError = calendar.mirror(CalendarMirror.entries(deadlines: store.deadlinesToMirror(), courses: store.courses(includeHidden: true)), store: store)
     }
 
     // MARK: Writing books
