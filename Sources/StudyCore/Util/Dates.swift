@@ -137,7 +137,7 @@ public struct LocalDate: Hashable, Comparable, Codable, CustomStringConvertible,
 }
 
 /// A wall-clock time "HH:MM".
-public struct LocalTime: Hashable, Comparable, Codable, CustomStringConvertible {
+public struct LocalTime: Hashable, Comparable, Codable, CustomStringConvertible, Sendable {
     public let hour: Int, minute: Int
     public init(hour: Int, minute: Int) {
         self.hour = max(0, min(23, hour)); self.minute = max(0, min(59, minute))

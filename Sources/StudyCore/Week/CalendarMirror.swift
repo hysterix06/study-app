@@ -53,6 +53,46 @@ public enum CalendarMirror {
     }
 }
 
+// MARK: - Classes
+
+extension CalendarMirror {
+    public static let classesCalendarTitle = "Study Tracker classes"
+
+    /// A class as the classes calendar holds it. The app owns that calendar, so an event is matched by what it says
+    /// rather than by a stored identifier.
+    public struct ClassEntry: Hashable, Sendable {
+        public var title: String
+        public var start: Date
+        public var end: Date
+        public var location: String?
+        public init(title: String, start: Date, end: Date, location: String?) {
+            self.title = title; self.start = start; self.end = end; self.location = location
+        }
+        public var key: String { [title, ISO.instant(start), ISO.instant(end), location ?? ""].joined(separator: "|") }
+    }
+
+    /// Classes from the timetable that belong in the calendar: not cancelled, with a time.
+    public static func classEntries(_ classes: [Timetable.Instance]) -> [ClassEntry] {
+        classes.filter { !$0.cancelled && !$0.allDay }.map {
+            ClassEntry(title: $0.summary, start: $0.start, end: $0.end ?? $0.start.addingTimeInterval(3600), location: $0.location)
+        }
+    }
+
+    /// What to add and which events (by id) to remove so the calendar holds exactly `wanted`. `existing` maps event ids
+    /// to their keys; a duplicate of a wanted class goes too.
+    public static func diff(wanted: [ClassEntry], existing: [String: String]) -> (create: [ClassEntry], delete: [String]) {
+        let want = Set(wanted.map(\.key))
+        var have = Set<String>()
+        var delete: [String] = []
+        for (id, key) in existing.sorted(by: { $0.key < $1.key }) {
+            if want.contains(key) && !have.contains(key) { have.insert(key) } else { delete.append(id) }
+        }
+        var seen = Set<String>()
+        let create = wanted.filter { !have.contains($0.key) && seen.insert($0.key).inserted }
+        return (create, delete)
+    }
+}
+
 extension BookStore {
     /// Work to copy to the calendar: not handed in, due from two weeks ago on, in visible courses.
     public func deadlinesToMirror(now: Date = Date()) -> [Deadline] {

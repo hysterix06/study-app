@@ -25,7 +25,7 @@ final class CalendarAccess {
 
     func calendars() -> [CalendarInfo] {
         guard authorized else { return [] }
-        return events.calendars(for: .event).filter { $0.title != CalendarMirror.calendarTitle }
+        return events.calendars(for: .event).filter { ![CalendarMirror.calendarTitle, CalendarMirror.classesCalendarTitle].contains($0.title) }
             .map { CalendarInfo(id: $0.calendarIdentifier, title: $0.title, account: $0.source.title) }
             .sorted { ($0.account, $0.title) < ($1.account, $1.title) }
     }
@@ -46,7 +46,11 @@ final class CalendarAccess {
     /// Makes the app's calendar hold exactly these deadlines. Returns a problem to show, or nil.
     func mirror(_ entries: [CalendarMirror.Entry], store: BookStore) -> String? {
         guard authorized else { return "Study Tracker isn't allowed to use Calendar. Allow it in System Settings › Privacy & Security › Calendars." }
-        guard let calendar = mirrorCalendar(store: store) else { return "Couldn't make a calendar for the deadlines." }
+        guard let (calendar, made) = ownCalendar(CalendarMirror.calendarTitle, key: "mirror_calendar_id", store: store) else {
+            return "Couldn't make a calendar for the deadlines."
+        }
+        // A new calendar holds none of the copies made before.
+        if made { store.clearMirrorState() }
         let now = Date()
         let existing = events.events(matching: events.predicateForEvents(withStart: now.addingTimeInterval(-60 * 86_400),
                                                                          end: now.addingTimeInterval(730 * 86_400), calendars: [calendar]))
@@ -78,9 +82,51 @@ final class CalendarAccess {
         return nil
     }
 
+    /// Makes the classes calendar hold exactly these classes from today on. Returns a problem to show, or nil.
+    func mirrorClasses(_ entries: [CalendarMirror.ClassEntry], store: BookStore) -> String? {
+        guard authorized else { return "Study Tracker isn't allowed to use Calendar. Allow it in System Settings › Privacy & Security › Calendars." }
+        guard let (calendar, _) = ownCalendar(CalendarMirror.classesCalendarTitle, key: "classes_calendar_id", store: store) else {
+            return "Couldn't make a calendar for your classes."
+        }
+        let today = Calendar.current.startOfDay(for: Date())
+        let existing = events.events(matching: events.predicateForEvents(withStart: today, end: today.addingTimeInterval(400 * 86_400), calendars: [calendar]))
+        let byId = Dictionary(existing.map { ($0.calendarItemIdentifier, $0) }, uniquingKeysWith: { a, _ in a })
+        let keys = byId.mapValues { e in
+            CalendarMirror.ClassEntry(title: e.title ?? "", start: e.startDate, end: e.endDate, location: e.location.flatMap { $0.isEmpty ? nil : $0 }).key
+        }
+        let (create, delete) = CalendarMirror.diff(wanted: entries.filter { $0.start >= today }, existing: keys)
+        guard !create.isEmpty || !delete.isEmpty else { return nil }
+        do {
+            for id in delete { if let e = byId[id] { try events.remove(e, span: .thisEvent, commit: false) } }
+            for entry in create {
+                let e = EKEvent(eventStore: events)
+                e.calendar = calendar
+                e.title = entry.title
+                e.startDate = entry.start
+                e.endDate = entry.end
+                e.location = entry.location
+                try events.save(e, span: .thisEvent, commit: false)
+            }
+            try events.commit()
+        } catch {
+            events.reset()
+            return "Couldn't update the classes calendar: \(error.localizedDescription)"
+        }
+        return nil
+    }
+
+    func removeClassesCalendar(store: BookStore) {
+        if authorized, let (cal, _) = ownCalendar(CalendarMirror.classesCalendarTitle, key: "classes_calendar_id", store: store, create: false) {
+            try? events.removeCalendar(cal, commit: true)
+        }
+        store.setSetting("classes_calendar_id", nil)
+    }
+
     /// Takes the app's calendar away when copying is turned off.
     func removeMirror(store: BookStore) {
-        if authorized, let cal = mirrorCalendar(store: store, create: false) { try? events.removeCalendar(cal, commit: true) }
+        if authorized, let (cal, _) = ownCalendar(CalendarMirror.calendarTitle, key: "mirror_calendar_id", store: store, create: false) {
+            try? events.removeCalendar(cal, commit: true)
+        }
         store.setSetting("mirror_calendar_id", nil)
         store.clearMirrorState()
     }
@@ -92,24 +138,24 @@ final class CalendarAccess {
         e.url = entry.url.flatMap(URL.init(string:))
     }
 
-    /// The app's calendar, made in iCloud when there is an iCloud account so the phone sees it.
-    private func mirrorCalendar(store: BookStore, create: Bool = true) -> EKCalendar? {
-        if let id = store.setting("mirror_calendar_id"), let cal = events.calendar(withIdentifier: id) { return cal }
-        if let cal = events.calendars(for: .event).first(where: { $0.title == CalendarMirror.calendarTitle && $0.allowsContentModifications }) {
-            store.setSetting("mirror_calendar_id", cal.calendarIdentifier)
-            return cal
+    /// One of the app's own calendars, made in iCloud when there is an iCloud account so the phone sees it. `made` is
+    /// true when it was just created.
+    private func ownCalendar(_ title: String, key: String, store: BookStore, create: Bool = true) -> (EKCalendar, made: Bool)? {
+        if let id = store.setting(key), let cal = events.calendar(withIdentifier: id) { return (cal, false) }
+        if let cal = events.calendars(for: .event).first(where: { $0.title == title && $0.allowsContentModifications }) {
+            store.setSetting(key, cal.calendarIdentifier)
+            return (cal, false)
         }
         guard create else { return nil }
         let sources = events.sources
         guard let source = sources.first(where: { $0.sourceType == .calDAV && $0.title.localizedCaseInsensitiveContains("icloud") })
             ?? events.defaultCalendarForNewEvents?.source ?? sources.first(where: { $0.sourceType == .local }) else { return nil }
         let cal = EKCalendar(for: .event, eventStore: events)
-        cal.title = CalendarMirror.calendarTitle
+        cal.title = title
         cal.source = source
         do { try events.saveCalendar(cal, commit: true) } catch { return nil }
-        store.setSetting("mirror_calendar_id", cal.calendarIdentifier)
-        store.clearMirrorState()
-        return cal
+        store.setSetting(key, cal.calendarIdentifier)
+        return (cal, true)
     }
 }
 

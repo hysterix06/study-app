@@ -24,6 +24,8 @@ final class AppModel {
     private(set) var dueCards = 0
     /// The review sheet is open.
     var reviewing = false
+    /// The sheet showing Claude's work is open.
+    var showingWork = false
     /// This week on Home: classes and deadlines day by day, and work overdue.
     private(set) var week: (overdue: [Agenda.Item], days: [Agenda.Day]) = ([], [])
     private(set) var timetableError: String?
@@ -93,6 +95,9 @@ final class AppModel {
         revision += 1
     }
 
+    /// For snapshots: show a writer status without running the writer.
+    func pretend(_ status: BookWriter.Status) { books = status }
+
     func course(_ id: Int) -> Course? { courses.first { $0.id == id } ?? hiddenCourses.first { $0.id == id } }
 
     // MARK: Moodle
@@ -149,7 +154,7 @@ final class AppModel {
 
     // MARK: Timetable
 
-    enum TimetableSource: String { case link, calendar }
+    enum TimetableSource: String { case link, calendar, picture }
 
     var timetableSource: TimetableSource? { store.setting("timetable_source").flatMap(TimetableSource.init(rawValue:)) }
     var timetableDeclined: Bool { store.setting("timetable_declined") == "1" }
@@ -158,7 +163,7 @@ final class AppModel {
 
     func classes(from: LocalDate, to: LocalDate) -> [Timetable.Instance] {
         switch timetableSource {
-        case .link?:
+        case .link?, .picture?:
             guard let text = store.timetableText else { return [] }
             let stamp = store.setting("timetable_fetched_at") ?? ""
             if parsed?.stamp != stamp { parsed = (stamp, (try? ICS.parse(text)) ?? []) }
@@ -194,12 +199,60 @@ final class AppModel {
         if !force, let at = store.timetableFetchedAt, Date().timeIntervalSince(at) < TimetableFeed.refreshInterval { return }
         do {
             let (text, events) = try await TimetableFeed.fetch(url)
+            let changed = text != store.timetableText
             store.saveTimetable(text, events: events)
             store.setSetting("timetable_error", nil)
+            if changed { reload(); updateClassMirror() }
         } catch {
             store.setSetting("timetable_error", Self.describe(error))
         }
         reload()
+    }
+
+    /// Has Claude read a picture of the timetable (a screenshot, photo or PDF). Returns the classes to confirm.
+    func readTimetablePicture(_ url: URL) async throws -> TimetableReader.Schedule {
+        guard let (provider, model) = Self.engine(store: store, cli: claudeCLI) else {
+            throw AIError.unavailable("Choose Claude Code or an API key first: Claude reads the picture.")
+        }
+        let (image, text) = try await Task.detached(priority: .userInitiated) { () throws -> (Data, String) in
+            guard let cg = Self.loadPicture(url) else { throw AIError.badResponse("That file isn't a picture the app can open.") }
+            let png = Imaging.pngData(cg) ?? Data()
+            let data = png.count < 3_500_000 ? png : (Imaging.jpegData(cg, quality: 0.85) ?? png)
+            return (data, Imaging.recognizeText(cg))
+        }.value
+        let mime = image.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
+        let (schedule, _) = try await TimetableReader.read(image: image, mimeType: mime, courses: courses, today: LocalDate(Date(), tz: .current),
+                                                           recognisedText: text, provider: provider, model: model)
+        guard schedule.readable, !schedule.classes.isEmpty else {
+            throw AIError.badResponse(schedule.note.isEmpty ? "Claude couldn't find a timetable in that picture." : schedule.note)
+        }
+        return schedule
+    }
+
+    /// The first page of a PDF, or an image, at most 2,000 pixels on its long side.
+    nonisolated static func loadPicture(_ url: URL) -> CGImage? {
+        if url.pathExtension.lowercased() == "pdf" {
+            guard let doc = CGPDFDocument(url as CFURL), let page = doc.page(at: 1) else { return nil }
+            return Imaging.render(page: page, width: 2000)
+        }
+        return Imaging.loadImage(url, maxPixel: 2000)
+    }
+
+    /// Starts using the classes read from a picture.
+    func useTimetablePicture(_ schedule: TimetableReader.Schedule, group: String?, copyToCalendar: Bool) async {
+        let today = LocalDate(Date(), tz: .current)
+        let ends = courses.compactMap(\.endsOn).map { LocalDate($0, tz: .current) }.filter { $0 > today && $0 < today.adding(days: 300) }
+        let fallback = ends.max() ?? today.adding(days: 112)
+        let slots = TimetableReader.classes(schedule, group: group)
+        let text = TimetableReader.calendar(slots, schedule: schedule, tz: .current, today: today, fallbackEnd: fallback)
+        Keychain.delete(TimetableFeed.account)
+        store.saveTimetable(text, events: slots.count)
+        store.setSetting("timetable_status", "\(slots.count) classes from a picture")
+        store.setSetting("timetable_until", TimetableReader.lastDay(schedule, fallback: fallback).string)
+        store.setSetting("timetable_source", TimetableSource.picture.rawValue)
+        for key in ["timetable_declined", "timetable_error", "timetable_calendars"] { store.setSetting(key, nil) }
+        reload()
+        if copyToCalendar && !mirrorsClasses { await setClassMirror(true) } else { updateClassMirror() }
     }
 
     func useCalendars(_ ids: [String]) {
@@ -212,8 +265,9 @@ final class AppModel {
     func removeTimetable() {
         Keychain.delete(TimetableFeed.account)
         store.clearTimetable()
-        for key in ["timetable_source", "timetable_calendars", "timetable_error"] { store.setSetting(key, nil) }
+        for key in ["timetable_source", "timetable_calendars", "timetable_error", "timetable_until"] { store.setSetting(key, nil) }
         reload()
+        updateClassMirror()
     }
 
     func declineTimetable() {
@@ -241,6 +295,34 @@ final class AppModel {
             mirrorError = nil
         }
         reload()
+    }
+
+    var mirrorsClasses: Bool { store.setting("class_mirror") == "1" }
+
+    func setClassMirror(_ on: Bool) async {
+        if on {
+            guard await calendar.requestAccess() else {
+                mirrorError = "Study Tracker isn't allowed to use Calendar. Allow it in System Settings › Privacy & Security › Calendars."
+                return
+            }
+            store.setSetting("class_mirror", "1")
+            updateClassMirror()
+        } else {
+            store.setSetting("class_mirror", nil)
+            calendar.removeClassesCalendar(store: store)
+            mirrorError = nil
+        }
+        reload()
+    }
+
+    /// Copies the timetable's classes, from today to the end of term, into the classes calendar. Classes read from
+    /// calendars on this Mac are already there, so they aren't copied.
+    func updateClassMirror() {
+        guard mirrorsClasses else { return }
+        let today = LocalDate(Date(), tz: .current)
+        let until = min(store.setting("timetable_until").flatMap(LocalDate.init) ?? today.adding(days: 120), today.adding(days: 200))
+        let classes = timetableSource == .calendar ? [] : self.classes(from: today, to: until)
+        mirrorError = calendar.mirrorClasses(CalendarMirror.classEntries(classes), store: store)
     }
 
     func updateMirror() {

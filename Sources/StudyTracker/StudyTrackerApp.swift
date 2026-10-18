@@ -20,6 +20,10 @@ struct StudyTrackerApp: App {
         if let i = args.firstIndex(of: "-snapshotChapter"), i + 2 < args.count, let id = Int(args[i + 1]) {
             Snapshot.chapter(id, to: URL(fileURLWithPath: args[i + 2]), option: args.dropFirst(i + 3).first)
         }
+        // `-snapshotWork out.png [chapterId]`: Home's top and Claude's work, as if that chapter were being written.
+        if let i = args.firstIndex(of: "-snapshotWork"), i + 1 < args.count {
+            Snapshot.work(to: URL(fileURLWithPath: args[i + 1]), writing: args.dropFirst(i + 2).first.flatMap(Int.init))
+        }
         // `-snapshotReview out.png [answer|done] [dark]`: the first due card.
         if let i = args.firstIndex(of: "-snapshotReview"), i + 1 < args.count {
             Snapshot.review(to: URL(fileURLWithPath: args[i + 1]), options: Set(args.dropFirst(i + 2)))
@@ -101,6 +105,18 @@ enum Snapshot {
         }
         RunLoop.main.run()
         exit(0)
+    }
+
+    static func work(to url: URL, writing: Int?) -> Never {
+        let model = AppModel(autoSync: false)
+        if let writing { model.pretend(BookWriter.Status(writing: "", job: .chapter(id: writing), startedAt: Date().addingTimeInterval(-130))) }
+        let view = VStack(alignment: .leading, spacing: 30) {
+            ClaudeStrip()
+            Divider()
+            Text("Claude's work").font(.serif(24, weight: .semibold))
+            ClaudeWorkContent()
+        }
+        write(view.environment(model).padding(40).frame(width: 700).background(Color.white).environment(\.colorScheme, .light), to: url)
     }
 
     static func review(to url: URL, options: Set<String>) -> Never {

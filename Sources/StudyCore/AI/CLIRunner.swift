@@ -247,16 +247,25 @@ public struct ClaudeCodeProvider: LLMProvider {
 
     public func send(_ req: ChatRequest) async throws -> ChatResponse {
         let (system, prompt) = Self.flatten(req)
-        let flags = CLIRunner.baseFlags(model: req.model, effort: effort) + [
+        let images = Self.images(req)
+        var flags = CLIRunner.baseFlags(model: req.model, effort: effort) + [
             CLIRunner.Flag(name: "--system-prompt", values: [system.isEmpty ? "You are a careful study assistant." : system]),
             CLIRunner.Flag(name: "--tools", values: [""], optional: true),
             CLIRunner.Flag(name: "--strict-mcp-config"), CLIRunner.Flag(name: "--mcp-config", values: [#"{"mcpServers":{}}"#]),
             CLIRunner.Flag(name: "--max-turns", values: ["2"]),
         ]
+        var input = Data(prompt.utf8)
+        if !images.isEmpty {
+            // Pictures can't go in a plain-text prompt: send one stream-json user message with them, and read the
+            // result line back from the stream.
+            flags = flags.map { $0.name == "--output-format" ? CLIRunner.Flag(name: "--output-format", values: ["stream-json"]) : $0 }
+            flags += [CLIRunner.Flag(name: "--input-format", values: ["stream-json"]), CLIRunner.Flag(name: "--verbose")]
+            input = Self.streamMessage(prompt: prompt, images: images)
+        }
         let running = RunningProcess()
         let onStart = self.onStart
-        let output = try await withTaskCancellationHandler {
-            try await CLIRunner.runClaudeCLI(cli, flags: flags, input: Data(prompt.utf8), directory: workingDirectory, timeout: timeout) { p in
+        var output = try await withTaskCancellationHandler {
+            try await CLIRunner.runClaudeCLI(cli, flags: flags, input: input, directory: workingDirectory, timeout: timeout) { p in
                 running.set(p)
                 onStart?(p.processIdentifier, p.arguments ?? [])
             }
@@ -264,8 +273,31 @@ public struct ClaudeCodeProvider: LLMProvider {
         if Task.isCancelled { throw AIError.canceled }
         // Not a network error: those are retried, and a stuck request shouldn't be paid for three times.
         if output.status == 15 { throw AIError.badResponse("Claude Code took longer than \(Int(timeout / 60)) minutes.") }
+        if !images.isEmpty, let line = Self.resultLine(output.stdout) { output.stdout = line }
         let r = try CLIRunner.parseResult(output)
         return ChatResponse(text: r.text, usage: r.usage, finishReason: "stop")
+    }
+
+    static func images(_ req: ChatRequest) -> [(data: Data, mimeType: String)] {
+        req.messages.flatMap { m in m.parts.compactMap { p -> (data: Data, mimeType: String)? in
+            if case .image(let d, let mime) = p { return (d, mime) }
+            return nil
+        } }
+    }
+
+    /// One line of stream-json: the prompt and its pictures as a user message.
+    static func streamMessage(prompt: String, images: [(data: Data, mimeType: String)]) -> Data {
+        let content: [[String: Any]] = images.map {
+            ["type": "image", "source": ["type": "base64", "media_type": $0.mimeType, "data": $0.data.base64EncodedString()]]
+        } + [["type": "text", "text": prompt]]
+        return Data((JSON.string(["type": "user", "message": ["role": "user", "content": content]]) + "\n").utf8)
+    }
+
+    /// The final `{"type":"result",…}` line of a stream-json run, which has the same shape as `--output-format json`.
+    static func resultLine(_ stdout: Data) -> Data? {
+        String(decoding: stdout, as: UTF8.self).split(separator: "\n").reversed().first { line in
+            (try? JSONValue.parse(Data(line.utf8)))?["type"]?.string == "result"
+        }.map { Data($0.utf8) }
     }
 }
 

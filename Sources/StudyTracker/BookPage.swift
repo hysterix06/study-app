@@ -173,8 +173,9 @@ struct ChapterView: View {
             } else {
                 VStack(spacing: 12) {
                     ProgressView()
-                    Text("Writing this chapter now. It takes a few minutes.").foregroundStyle(.secondary)
+                    Text(waiting(index.map { chapters[$0] })).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
+                .frame(maxWidth: 420)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -194,6 +195,17 @@ struct ChapterView: View {
                 .disabled(index.map { !chapters[$0].isReady } ?? true)
             }
         }
+    }
+
+    /// Why an unwritten chapter isn't here yet.
+    func waiting(_ ch: Chapter?) -> String {
+        guard let ch else { return "" }
+        if model.engineChoice == nil { return "Choose how books are written on Home, and this chapter is written first." }
+        if let until = model.books.pausedUntil, until > Date() { return "Writing is paused until \(Format.time(until)). This chapter comes first after that." }
+        if ch.status == "failed" { return "This chapter couldn't be written: \(ch.error ?? "unknown problem"). Use Try again on the book's page." }
+        if model.books.job == .chapter(id: ch.id) { return "Claude is writing this chapter now. It takes a minute or two." }
+        if let job = model.books.job { return "This chapter is next. Claude starts on it as soon as it finishes \(model.describe(job))." }
+        return "Claude is starting on this chapter."
     }
 
     func move(_ step: Int, _ chapters: [Chapter], _ index: Int?) {

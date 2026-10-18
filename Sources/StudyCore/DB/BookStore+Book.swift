@@ -118,6 +118,37 @@ extension BookStore {
         return best.map { .chapter(id: $0.id) }
     }
 
+    /// What the writer will do after the current job, in order.
+    public func upcomingJobs(limit: Int = 5, now: Date = Date(), excluding current: BookJob? = nil) -> [BookJob] {
+        var seen: Set<BookJob> = current.map { [$0] } ?? []
+        var out: [BookJob] = []
+        while out.count < limit, let job = nextJob(now: now, excluding: seen) {
+            out.append(job)
+            seen.insert(job)
+        }
+        return out
+    }
+
+    /// Chapters written most recently, newest first.
+    public func recentChapters(limit: Int = 5) -> [Chapter] {
+        let sql = "SELECT ch.* FROM chapters ch JOIN courses c ON c.id = ch.course_id WHERE ch.status = 'ready' AND c.hidden = 0 ORDER BY ch.generated_at DESC LIMIT ?"
+        return ((try? db.query(sql, [limit])) ?? []).map(Chapter.init(row:))
+    }
+
+    /// Chapters written, out of all planned, in visible courses.
+    public func chapterTotals() -> (ready: Int, all: Int) {
+        let sql = "SELECT sum(ch.status = 'ready') AS ready, count(*) AS n FROM chapters ch JOIN courses c ON c.id = ch.course_id WHERE c.hidden = 0"
+        let r = (try? db.first(sql)) ?? nil
+        return (r?.int("ready") ?? 0, r?.int("n") ?? 0)
+    }
+
+    /// Chapters still to write that wait for their course files to be read from Moodle.
+    public func chaptersWaitingForFiles() -> Int {
+        courses().filter { $0.tocStatus == "ready" }.reduce(0) { n, c in
+            n + chapters(courseId: c.id).filter { $0.status == "queued" && !filesReady($0, course: c) }.count
+        }
+    }
+
     /// A table of contents needs the syllabus, or every file listed.
     func hasBookMaterial(_ c: Course) -> Bool {
         if c.filesSyncedAt != nil { return true }

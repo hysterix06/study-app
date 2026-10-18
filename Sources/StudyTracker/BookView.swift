@@ -29,7 +29,8 @@ struct BookContent: View {
         let chapters = model.store.chapters(courseId: courseId)
         return VStack(alignment: .leading, spacing: 30) {
             header(course)
-            if let course { status(course, chapters: chapters) }
+            if model.engineChoice == nil { WriteBooksCard() }
+            else if let course { status(course, chapters: chapters) }
             if !chapters.isEmpty { contents(chapters, current: currentIndex(chapters)) }
             BuiltFrom(courseId: courseId)
         }
@@ -38,7 +39,6 @@ struct BookContent: View {
 
     func header(_ course: Course?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Rectangle().fill(Color.course(course?.color ?? 0)).frame(width: 40, height: 3)
             Text(course?.title ?? "").font(.serif(34, weight: .semibold))
             if let code = course?.code { Text(code).foregroundStyle(.secondary) }
         }
@@ -49,9 +49,12 @@ struct BookContent: View {
         switch course.tocStatus {
         case "ready":
             let ready = chapters.filter(\.isReady).count
-            Text(ready == chapters.count ? "All \(chapters.count) chapters are written." :
-                 "\(ready) of \(chapters.count) chapters written. The rest are written in the background, this week's first.")
+            let writingHere = chapters.first { model.books.job == .chapter(id: $0.id) }
+            Text(ready == chapters.count ? "All \(chapters.count) chapters are written."
+                 : "\(ready) of \(chapters.count) chapters written. " + (writingHere.map { "Claude is writing chapter \($0.position) now." }
+                    ?? "Claude writes the rest in the background, this week's first. Open a chapter to have it written next."))
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         case "failed":
             HStack {
                 Text("Couldn't plan this book: \(course.tocError ?? "unknown problem").").foregroundStyle(.secondary)
@@ -60,8 +63,7 @@ struct BookContent: View {
         case "writing":
             HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Planning the chapters…").foregroundStyle(.secondary) }
         default:
-            Text(model.engineChoice == nil ? "Choose how books are written on Home, and this course's book starts."
-                 : course.filesSyncedAt == nil ? "The book is planned once the syllabus has been read from Moodle."
+            Text(course.filesSyncedAt == nil ? "The book is planned once the syllabus has been read from Moodle."
                  : "Waiting its turn to be planned.")
                 .foregroundStyle(.secondary)
         }
@@ -106,6 +108,9 @@ struct BookContent: View {
         }
     }
 
+    /// The writer's next job after the one in flight.
+    var nextUp: BookJob? { model.engineChoice == nil ? nil : model.store.upcomingJobs(limit: 1, excluding: model.books.job).first }
+
     @ViewBuilder
     func state(_ ch: Chapter) -> some View {
         switch ch.status {
@@ -113,11 +118,12 @@ struct BookContent: View {
             if ch.readAt != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary).help("Read") }
             else { Text("\(ch.words / 230 + 1) min").font(.callout).foregroundStyle(.secondary).help("Reading time") }
         case "writing":
-            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Writing…").font(.callout).foregroundStyle(.secondary) }
+            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Writing now").font(.callout).foregroundStyle(.secondary) }
         case "failed":
             Button("Try again") { model.retry(.chapter(id: ch.id)) }.help(ch.error ?? "")
         default:
-            Text("Not written yet").font(.callout).foregroundStyle(.tertiary)
+            if nextUp == .chapter(id: ch.id) { Text("Up next").font(.callout).foregroundStyle(.secondary) }
+            else { Text("Not written yet").font(.callout).foregroundStyle(.tertiary) }
         }
     }
 }

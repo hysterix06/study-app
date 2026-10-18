@@ -8,10 +8,13 @@ public actor BookWriter {
     public struct Status: Equatable, Sendable {
         /// What's being written now ("Marketing · chapter 3").
         public var writing: String?
+        /// The job in flight and when it started.
+        public var job: BookJob?
+        public var startedAt: Date?
         public var pausedUntil: Date?
         public var pausedReason: String?
-        public init(writing: String? = nil, pausedUntil: Date? = nil, pausedReason: String? = nil) {
-            self.writing = writing; self.pausedUntil = pausedUntil; self.pausedReason = pausedReason
+        public init(writing: String? = nil, job: BookJob? = nil, startedAt: Date? = nil, pausedUntil: Date? = nil, pausedReason: String? = nil) {
+            self.writing = writing; self.job = job; self.startedAt = startedAt; self.pausedUntil = pausedUntil; self.pausedReason = pausedReason
         }
     }
 
@@ -27,6 +30,7 @@ public actor BookWriter {
     private var focus: Int?
     private var backoff: [BookJob: (until: Date, tries: Int)] = [:]
     private var writing: String?
+    private var current: (job: BookJob, started: Date)?
 
     public static let maxAttempts = 2
 
@@ -75,7 +79,7 @@ public actor BookWriter {
     }
 
     public var status: Status {
-        Status(writing: writing, pausedUntil: pausedUntil(), pausedReason: store.setting("ai_paused_reason"))
+        Status(writing: writing, job: current?.job, startedAt: current?.started, pausedUntil: pausedUntil(), pausedReason: store.setting("ai_paused_reason"))
     }
 
     /// Waits for the current run of work to finish (tests).
@@ -84,7 +88,7 @@ public actor BookWriter {
     // MARK: The loop
 
     private func loop() async {
-        defer { runner = nil; writing = nil; report() }
+        defer { runner = nil; writing = nil; current = nil; report() }
         while !Task.isCancelled {
             let now = clock()
             if let until = pausedUntil(), until > now { schedule(at: until); return }
@@ -113,6 +117,8 @@ public actor BookWriter {
     private func report() { onChange(status) }
 
     private func run(_ job: BookJob, provider: LLMProvider, model: String) async {
+        current = (job, clock())
+        defer { current = nil }
         switch job {
         case .toc(let courseId): await writeContents(courseId, provider: provider, model: model)
         case .chapter(let id): await writeChapter(id, provider: provider, model: model)

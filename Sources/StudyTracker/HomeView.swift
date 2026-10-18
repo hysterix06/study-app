@@ -20,6 +20,9 @@ struct HomeView: View {
             .navigationDestination(for: ChapterRoute.self) { r in ChapterView(courseId: r.courseId, chapterId: r.chapterId) }
         }
         .sheet(isPresented: $model.reviewing) { ReviewView().environment(model) }
+        .sheet(isPresented: $model.showingWork) {
+            ClaudeWorkView(openBook: { path.append($0) }, openChapter: { path.append($0) }).environment(model)
+        }
     }
 }
 
@@ -31,7 +34,10 @@ struct HomeContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 44) {
-            header
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                if model.moodleSite != nil { ClaudeStrip() }
+            }
             if model.moodleSite == nil || model.needsSignIn {
                 ConnectMoodleCard()
             } else if model.engineChoice == nil && !model.engineDeclined {
@@ -282,11 +288,6 @@ struct SyncStatus: View {
                     Text("Synced \(Format.relative.localizedString(for: last, relativeTo: Date()))")
                         .help(model.lastStatus ?? "")
                 }
-            }
-            if let until = model.books.pausedUntil, until > Date() {
-                Text("Books paused until \(Format.time(until))").help(model.books.pausedReason ?? "")
-            } else if let writing = model.books.writing {
-                Text("Writing \(writing)…")
             }
         }
         .font(.callout)
