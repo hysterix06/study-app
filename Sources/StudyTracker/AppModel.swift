@@ -379,6 +379,8 @@ final class AppModel {
 
     func stopWritingBooks() {
         store.setSetting("ai_engine", nil)
+        // Off means off: Home stops offering to turn it back on.
+        store.setSetting("ai_declined", "1")
         reload()
         Task { await writer.stop() }
     }
